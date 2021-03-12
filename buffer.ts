@@ -113,7 +113,7 @@ export class BufferWriter {
         return this
     }
 
-    writeString(string: string = ''): BufferWriter {
+    writeString(string: string): BufferWriter {
         const buffer = encode(string)
         this.buffer.set(buffer, this.index)
         this.index += buffer.length
