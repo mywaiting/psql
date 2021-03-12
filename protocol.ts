@@ -4,6 +4,10 @@
  */
 
 import {
+    MESSAGE_CODE,
+    MESSAGE_NAME
+} from './const.ts'
+import {
     BufferReader,
     BufferWriter,
     decode,
@@ -12,25 +16,33 @@ import {
 
 
 
-// backend(B) --> frontend(F) // server --> client
-export class MessageReader {
+
+
+
+
+
+
+
+// backend(B)/server --> frontend(F)/client
+export class PacketReader {
     name!: string
-    type!: number
+    code!: number
     length!: number
     body!: BufferReader
 
-    async read(reader: Deno.Conn): Promise<MessageReader | null> {
-        return this
+}
+
+// frontend(F)/client --> backend(B)/server
+export class PacketWriter {
+
+}
+
+
+
+export class AuthenticationReader extends PacketReader {
+
+    read(reader: BufferReader) {
+        this.name = MESSAGE_NAME.AuthenticationOk
+        this.code = reader.readUint32()
     }
-}
-
-// frontend(F) --> backend(B) // client --> server
-export class MessageWriter {
-
-}
-
-
-
-export class AuthenticationOkReader extends MessageReader {
-
 }
