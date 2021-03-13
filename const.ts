@@ -66,52 +66,52 @@ export const enum MESSAGE_CODE {
  * https://www.postgresql.org/docs/13/protocol-message-formats.html
  */
 export const enum MESSAGE_NAME {
-    AuthenticationOk = 'AuthenticationOk',
-    AuthenticationKerberosV5 = 'AuthenticationKerberosV5',
-    AuthenticationCleartextPassword = 'AuthenticationCleartextPassword',
-    AuthenticationMD5Password = 'AuthenticationMD5Password',
-    AuthenticationSCMCredential = 'AuthenticationSCMCredential',
-    AuthenticationGSS = 'AuthenticationGSS',
-    AuthenticationSSPI = 'AuthenticationSSPI',
-    AuthenticationGSSContinue = 'AuthenticationGSSContinue',
-    AuthenticationSASL = 'AuthenticationSASL',
-    AuthenticationSASLContinue = 'AuthenticationSASLContinue',
-    AuthenticationSASLFinal = 'AuthenticationSASLFinal',
-    BackendKeyData = 'BackendKeyData',
+    /*B*/AuthenticationOk = 'AuthenticationOk',
+    /*B*/AuthenticationKerberosV5 = 'AuthenticationKerberosV5',
+    /*B*/AuthenticationCleartextPassword = 'AuthenticationCleartextPassword',
+    /*B*/AuthenticationMD5Password = 'AuthenticationMD5Password',
+    /*B*/AuthenticationSCMCredential = 'AuthenticationSCMCredential',
+    /*B*/AuthenticationGSS = 'AuthenticationGSS',
+    /*B*/AuthenticationSSPI = 'AuthenticationSSPI',
+    /*B*/AuthenticationGSSContinue = 'AuthenticationGSSContinue',
+    /*B*/AuthenticationSASL = 'AuthenticationSASL',
+    /*B*/AuthenticationSASLContinue = 'AuthenticationSASLContinue',
+    /*B*/AuthenticationSASLFinal = 'AuthenticationSASLFinal',
+    /*B*/BackendKeyData = 'BackendKeyData',
     Bind = 'Bind',
-    BindComplete = 'BindComplete',
+    /*B*/BindComplete = 'BindComplete',
     CancelRequest = 'CancelRequest',
     Close = 'Close',
-    CloseComplete = 'CloseComplete',
-    CommandComplete = 'CommandComplete',
-    CopyData = 'CopyData',
-    CopyDone = 'CopyDone',
+    /*B*/CloseComplete = 'CloseComplete',
+    /*B*/CommandComplete = 'CommandComplete',
+    /*BF*/CopyData = 'CopyData',
+    /*BF*/CopyDone = 'CopyDone',
     CopyFail = 'CopyFail',
-    CopyInResponse = 'CopyInResponse',
-    CopyOutResponse = 'CopyOutResponse',
-    CopyBothResponse = 'CopyBothResponse',
-    DataRow = 'DataRow',
+    /*B*/CopyInResponse = 'CopyInResponse',
+    /*B*/CopyOutResponse = 'CopyOutResponse',
+    /*B*/CopyBothResponse = 'CopyBothResponse',
+    /*B*/DataRow = 'DataRow',
     Describe = 'Describe',
-    EmptyQueryResponse = 'EmptyQueryResponse',
-    ErrorResponse = 'ErrorResponse',
+    /*B*/EmptyQueryResponse = 'EmptyQueryResponse',
+    /*B*/ErrorResponse = 'ErrorResponse',
     Execute = 'Execute',
     Flush = 'Flush',
     FunctionCall = 'FunctionCall',
-    FunctionCallResponse = 'FunctionCallResponse',
+    /*B*/FunctionCallResponse = 'FunctionCallResponse',
     GSSResponse = 'GSSResponse',
-    NegotiateProtocolVersion = 'NegotiateProtocolVersion',
-    NoData = 'NoData',
-    NoticeResponse = 'NoticeResponse',
-    NotificationResponse = 'NotificationResponse',
-    ParameterDescription = 'ParameterDescription',
-    ParameterStatus = 'ParameterStatus',
+    /*B*/NegotiateProtocolVersion = 'NegotiateProtocolVersion',
+    /*B*/NoData = 'NoData',
+    /*B*/NoticeResponse = 'NoticeResponse',
+    /*B*/NotificationResponse = 'NotificationResponse',
+    /*B*/ParameterDescription = 'ParameterDescription',
+    /*B*/ParameterStatus = 'ParameterStatus',
     Parse = 'Parse',
-    ParseComplete = 'ParseComplete',
+    /*B*/ParseComplete = 'ParseComplete',
     PasswordMessage = 'PasswordMessage',
-    PortalSuspended = 'PortalSuspended',
+    /*B*/PortalSuspended = 'PortalSuspended',
     Query = 'Query',
-    ReadyForQuery = 'ReadyForQuery',
-    RowDescription = 'RowDescription',
+    /*B*/ReadyForQuery = 'ReadyForQuery',
+    /*B*/RowDescription = 'RowDescription',
     SASLInitialResponse = 'SASLInitialResponse',
     SASLResponse = 'SASLResponse',
     SSLRequest = 'SSLRequest',
@@ -119,4 +119,69 @@ export const enum MESSAGE_NAME {
     StartupMessage = 'StartupMessage',
     Sync = 'Sync',
     Terminate = 'Terminate',
+}
+
+
+/**
+ * specifies that authentication message with int32
+ */
+export const enum AUTHENTICATION {
+    Ok = 0x00,
+    KerberosV5 = 0x02,
+    CleartextPassword = 0x03,
+    MD5Password = 0x05,
+    SCMCredential = 0x06,
+    GSS = 0x07,
+    GSSContinue = 0x08,
+    SSPI = 0x09,
+    SASL = 0x0a,         // 10
+    SASLContinue = 0x0b, // 11
+    SASLFinal = 0x0c,    // 12
+}
+
+
+/**
+ * error and notice message fields, same as them
+ * https://www.postgresql.org/docs/13/protocol-error-fields.html
+ */
+export const enum ERROR_MESSAGE_FIELD {
+    SEVERITY = 'S', // always present.
+    // SEVERITY = 'V', // present only by PostgreSQL versions 9.6 and later
+    CODE     = 'C',
+    MESSAGE  = 'M',
+    DETAIL   = 'D',
+    HINT     = 'H',
+    POSITION = 'P',
+    INTERNAL_POSITION = 'p',
+    INTERNAL_QUERY    = 'q',
+    WHERE       = 'W',
+    SCHEMA      = 's',
+    TABLE       = 't',
+    COLUMN      = 'c',
+    DATA_TYPE   = 'd',
+    CONSTRAINT  = 'n',
+    FILE    = 'F',
+    LINE    = 'L',
+    ROUTINE = 'R',
+}
+
+export const enum NOTICE_MESSAGE_FIELD {
+    SEVERITY = 'S', // always present.
+    // SEVERITY = 'V', // present only by PostgreSQL versions 9.6 and later
+    CODE     = 'C',
+    MESSAGE  = 'M',
+    DETAIL   = 'D',
+    HINT     = 'H',
+    POSITION = 'P',
+    INTERNAL_POSITION = 'p',
+    INTERNAL_QUERY    = 'q',
+    WHERE       = 'W',
+    SCHEMA      = 's',
+    TABLE       = 't',
+    COLUMN      = 'c',
+    DATA_TYPE   = 'd',
+    CONSTRAINT  = 'n',
+    FILE    = 'F',
+    LINE    = 'L',
+    ROUTINE = 'R',
 }
