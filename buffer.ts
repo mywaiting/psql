@@ -33,6 +33,10 @@ export class BufferReader {
         return this.index
     }
 
+    get ended(): boolean {
+        return this.index > this.buffer.length
+    }
+
     constructor(readonly buffer: Uint8Array) {}
 
     read(length: number): Uint8Array {
