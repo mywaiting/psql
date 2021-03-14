@@ -369,23 +369,23 @@ export class NoticeResponseReader extends PacketReader {
             code: this.code,
             length: this.length,
             // error message field
-            severity: data[ERROR_MESSAGE_FIELD.SEVERITY],
-            errcode:  data[ERROR_MESSAGE_FIELD.CODE], // conflict with packet code's name
-            message:  data[ERROR_MESSAGE_FIELD.MESSAGE],
-            detail:   data[ERROR_MESSAGE_FIELD.DETAIL],
-            hint:     data[ERROR_MESSAGE_FIELD.HINT],
-            position: data[ERROR_MESSAGE_FIELD.POSITION],
-            internalPosition: data[ERROR_MESSAGE_FIELD.INTERNAL_POSITION],
-            internalQuery:    data[ERROR_MESSAGE_FIELD.INTERNAL_QUERY],
-            where:      data[ERROR_MESSAGE_FIELD.WHERE],
-            schema:     data[ERROR_MESSAGE_FIELD.SCHEMA],
-            table:      data[ERROR_MESSAGE_FIELD.TABLE],
-            column:     data[ERROR_MESSAGE_FIELD.COLUMN],
-            dataType:   data[ERROR_MESSAGE_FIELD.DATA_TYPE],
-            constraint: data[ERROR_MESSAGE_FIELD.CONSTRAINT],
-            file:    data[ERROR_MESSAGE_FIELD.FILE],
-            line:    data[ERROR_MESSAGE_FIELD.LINE],
-            routine: data[ERROR_MESSAGE_FIELD.ROUTINE]
+            severity: data[NOTICE_MESSAGE_FIELD.SEVERITY],
+            errcode:  data[NOTICE_MESSAGE_FIELD.CODE], // conflict with packet code's name
+            message:  data[NOTICE_MESSAGE_FIELD.MESSAGE],
+            detail:   data[NOTICE_MESSAGE_FIELD.DETAIL],
+            hint:     data[NOTICE_MESSAGE_FIELD.HINT],
+            position: data[NOTICE_MESSAGE_FIELD.POSITION],
+            internalPosition: data[NOTICE_MESSAGE_FIELD.INTERNAL_POSITION],
+            internalQuery:    data[NOTICE_MESSAGE_FIELD.INTERNAL_QUERY],
+            where:      data[NOTICE_MESSAGE_FIELD.WHERE],
+            schema:     data[NOTICE_MESSAGE_FIELD.SCHEMA],
+            table:      data[NOTICE_MESSAGE_FIELD.TABLE],
+            column:     data[NOTICE_MESSAGE_FIELD.COLUMN],
+            dataType:   data[NOTICE_MESSAGE_FIELD.DATA_TYPE],
+            constraint: data[NOTICE_MESSAGE_FIELD.CONSTRAINT],
+            file:    data[NOTICE_MESSAGE_FIELD.FILE],
+            line:    data[NOTICE_MESSAGE_FIELD.LINE],
+            routine: data[NOTICE_MESSAGE_FIELD.ROUTINE]
         }
     }
 }
@@ -644,10 +644,24 @@ export class DescribeWriter extends PacketWriter {
     }
 }
 
+export class ExecuteWriter extends PacketWriter {
+    constructor(
+        public portal?: string,
+        public rows?: number
+    ) {
+        super(
+            /* name */MESSAGE_NAME.Flush,
+            /* code */MESSAGE_CODE.Flush,
+            /* length */1 + 4// code + length
+        )
+    }
 
-
-
-
+    write(writer: BufferWriter) {
+        writer.writeUint16(this.code)
+        writer.writeUint32(this.length)
+        return writer.buffer.slice(0, writer.index)
+    }
+}
 
 export class FlushWriter extends PacketWriter {
     constructor() {
@@ -665,10 +679,133 @@ export class FlushWriter extends PacketWriter {
     }
 }
 
+export class FunctionCallWriter extends PacketWriter {
+    constructor() {
+        super(
+            /* name */MESSAGE_NAME.FunctionCall,
+            /* code */MESSAGE_CODE.FunctionCall,
+            /* length */1 + 4// code + length
+        )
+    }
 
+    write(writer: BufferWriter) {
+    }
+}
 
+export class GSSResponseWriter extends PacketWriter {
+    constructor() {
+        super(
+            /* name */MESSAGE_NAME.GSSResponse,
+            /* code */MESSAGE_CODE.GSSResponse,
+            /* length */1 + 4// code + length
+        )
+    }
 
+    write(writer: BufferWriter) {
+    }
+}
 
+export class ParseWriter extends PacketWriter {
+    constructor(
+        public query: string,
+        public qname: string,
+        public types?: number[],
+        
+    ) {
+        super(
+            /* name */MESSAGE_NAME.Describe,
+            /* code */MESSAGE_CODE.Describe,
+            /* length */(dialog || '').length + 1 + 4 + 1 // code + length + 0x00
+        )
+    }
+
+    write(writer: BufferWriter) {
+        writer.writeUint16(this.code)
+        writer.writeUint32(this.length)
+        writer.writeString(this.dialog || '').writeUint16(0x00)
+        return writer.buffer.slice(0, writer.index)
+    }
+}
+
+export class PasswordMessageWriter extends PacketWriter {
+    constructor(
+        public password: string
+    ) {
+        super(
+            /* name */MESSAGE_NAME.PasswordMessage,
+            /* code */MESSAGE_CODE.PasswordMessage,
+            /* length */password.length + 1 + 4 + 1 // code + length + 0x00
+        )
+    }
+
+    write(writer: BufferWriter) {
+        writer.writeUint16(this.code)
+        writer.writeUint32(this.length)
+        writer.writeString(this.password).writeUint16(0x00)
+        return writer.buffer.slice(0, writer.index)
+    }
+}
+
+export class QueryWriter extends PacketWriter {
+    constructor(
+        public query: string
+    ) {
+        super(
+            /* name */MESSAGE_NAME.Query,
+            /* code */MESSAGE_CODE.Query,
+            /* length */query.length + 1 + 4 + 1 // code + length + 0x00
+        )
+    }
+
+    write(writer: BufferWriter) {
+        writer.writeUint16(this.code)
+        writer.writeUint32(this.length)
+        writer.writeString(this.query).writeUint16(0x00)
+        return writer.buffer.slice(0, writer.index)
+    }
+}
+
+export class SASLInitialResponseWriter extends PacketWriter {
+    constructor(
+        public mechanism: string,
+        public initialResponse: string
+
+    ) {
+        super(
+            /* name */MESSAGE_NAME.SASLInitialResponse,
+            /* code */MESSAGE_CODE.SASLInitialResponse,
+            /* length */mechanism.length + initialResponse.length + 1 + 4 + 1 // code + length + 0x00
+        )
+    }
+
+    write(writer: BufferWriter) {
+        writer.writeUint16(this.code)
+        writer.writeUint32(this.length)
+        writer.writeString(this.mechanism).writeUint16(0x00)
+        writer.writeUint32(this.initialResponse.length)
+        writer.writeString(this.initialResponse).writeUint16(0x00)
+        return writer.buffer.slice(0, writer.index)
+    }
+}
+
+export class SASLResponseWriter extends PacketWriter {
+    constructor(
+        public mechanism: string
+    ) {
+        super(
+            /* name */MESSAGE_NAME.SASLResponse,
+            /* code */MESSAGE_CODE.SASLResponse,
+            /* length */mechanism.length + 1 + 4 + 1 // code + length + 0x00
+        )
+    }
+
+    write(writer: BufferWriter) {
+        writer.writeUint16(this.code)
+        writer.writeUint32(this.length)
+        writer.writeString(this.mechanism).writeUint16(0x00)
+        return writer.buffer.slice(0, writer.index)
+    }
+}
 
 /**
  * SSLRequest has no initial message-type byte.
