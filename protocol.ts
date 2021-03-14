@@ -18,8 +18,34 @@ import {
 } from './buffer.ts'
 
 
+const DEBUG = false
 
-
+/**
+ * be careful pass reader: BuffferReader
+ * please used BufReader.copy() before pass reader!
+ */
+function dumpPacket(reader: BufferReader) {
+    function printable(digit: number): string {
+        if (32 <= digit && digit < 127) {
+            return String.fromCharCode(digit)
+        }
+        return '.'
+    }
+    console.log(`packetLength: ${reader.buffer.length}`)
+    // packet detail
+    let printUints = [], printTexts = ''
+    while (!reader.ended) {
+        for (let current = 0; current < 16; current++) {
+            if (reader.ended) return
+            const int = reader.readUint8(), hex = Number(int).toString(16)
+            printUints.push(hex.length === 1 ? ['0', hex].join('') : hex) 
+            if (current === 7) printUints.push('  ')
+            printTexts += printable(int)
+        }
+        console.log(printUints.join(' '), '    ', printTexts)
+        printUints = [], printTexts = ''
+    }
+}
 
 
 
@@ -141,14 +167,14 @@ export class AuthenticationReader extends PacketReader {
 export class BackendKeyDataReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const process = reader.readUint32()
-        const secret = reader.readUint32()
+        const processId = reader.readUint32()
+        const secretKey = reader.readUint32()
         return {
             name: this.name,
             code: this.code,
             length: this.length,
-            process: process,
-            secret: secret
+            processId: processId,
+            secretKey: secretKey
         }
     }
 }
