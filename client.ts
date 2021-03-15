@@ -35,7 +35,10 @@ export class Client {
         await this.connection.connect()
     }
 
-    cursor(cursorFactory: Cursor): Cursor {
+    /**
+     * https://stackoverflow.com/questions/12802317/passing-class-as-parameter-causes-is-not-newable-error
+     */
+    cursor(cursorFactory: new (connection: Connection) => ArrayCursor | ObjectCursor): Cursor {
         const cursor = new cursorFactory(this.connection)
         return cursor
     }
