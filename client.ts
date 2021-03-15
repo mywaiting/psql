@@ -3,14 +3,11 @@ import {
     Connection,
     ConnectionOptions
 } from './connection.ts'
-
-
-
-
-
-class ClientMixin {
-
-}
+import {
+    Cursor,
+    ArrayCursor,
+    ObjectCursor
+} from './cursor.ts'
 
 
 
@@ -25,26 +22,28 @@ export interface ClientOptions {
 }
 
 
-export class Client extends ClientMixin {
+export class Client {
 
     connection: Connection
 
     constructor(options: ClientOptions | string) {
-        super()
-        const connectionOptions = new _ClientOptions(options).connectionOptions
-        this.connection = new Connection(connectionOptions)
+        const clientOptions = new _ClientOptions(options)
+        this.connection = new Connection(clientOptions.connectionOptions)
     }
 
     async connect(): Promise<void> {
         await this.connection.connect()
     }
 
-    async close(): Promise<void> {
-        await this.connection.close()
+    cursor(cursorFactory: Cursor): Cursor {
+        const cursor = new cursorFactory(this.connection)
+        return cursor
+    }
+
+    close(): void {
+        this.connection.close()
     }
 }
-
-
 
 
 class _ClientOptions {
@@ -139,5 +138,23 @@ class _ClientOptions {
             options: options,
             applicationName: Deno.env.get("PGAPPNAME")
         }
+    }
+}
+
+
+export interface PoolOptions extends ClientOptions {
+    maxPool?: number
+}
+
+
+export class Pool {
+
+}
+
+
+class _PoolOptions extends _ClientOptions {
+
+    constructor(options: PoolOptions) {
+        super()
     }
 }
