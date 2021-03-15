@@ -7,16 +7,20 @@ import {
 
 
 export class Cursor {
-    constructor(connection: Connection) {}
+    constructor(public connection: Connection) {}
     execute() {}
 }
 
 
 export class ArrayCursor extends Cursor {
-
+    constructor(public connection: Connection) {
+        super(connection)
+    }
 }
 
 
 export class ObjectCursor extends Cursor {
-
+    constructor(public connection: Connection) {
+        super(connection)
+    }
 }
