@@ -547,7 +547,9 @@ export class PacketWriter {
         public length: number
     ) {}
 
-    write(writer: BufferWriter) {}
+    write(writer: BufferWriter): Uint8Array {
+        throw new Error('not implemented')
+    }
 }
 
 export class BindWriter extends PacketWriter {
@@ -568,7 +570,7 @@ export class BindWriter extends PacketWriter {
     }
 
     write(writer: BufferWriter) {
-
+        return writer.buffer.slice(0, writer.index)
     }
 }
 
@@ -715,6 +717,7 @@ export class FunctionCallWriter extends PacketWriter {
     }
 
     write(writer: BufferWriter) {
+        return writer.buffer.slice(0, writer.index)
     }
 }
 
@@ -728,6 +731,7 @@ export class GSSResponseWriter extends PacketWriter {
     }
 
     write(writer: BufferWriter) {
+        return writer.buffer.slice(0, writer.index)
     }
 }
 
@@ -880,7 +884,7 @@ export class StartupWriter {
     }
 
     write(writer: BufferWriter) {
-
+        return writer.buffer.slice(0, writer.index)
     }
 }
 
