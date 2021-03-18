@@ -13,14 +13,10 @@ export class Cursor {
 
 
 export class ArrayCursor extends Cursor {
-    constructor(public connection: Connection) {
-        super(connection)
-    }
+    
 }
 
 
 export class ObjectCursor extends Cursor {
-    constructor(public connection: Connection) {
-        super(connection)
-    }
+    
 }

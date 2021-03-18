@@ -360,7 +360,7 @@ export const enum OID_TYPE_CODE {
     'regnamespace'     = 4089,
     '_regnamespace'    = 4090,
     'regrole'          = 4096,
-    '_regrole'         = 4097
+    '_regrole'         = 4097,
 }
 
 export const enum OID_TYPE_NAME {
