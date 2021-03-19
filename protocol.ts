@@ -67,7 +67,13 @@ export class PacketReader {
 
 export class AuthenticationReader extends PacketReader {
 
-    read(reader: BufferReader) {
+    read = (reader: BufferReader): {
+        name: MESSAGE_NAME,
+        code: MESSAGE_CODE,
+        length: number
+    // deno-lint-ignore no-explicit-any
+    } & any => {
+    // read(reader: BufferReader) {
         const code = reader.readUint32()
 
         switch (code) {
@@ -161,6 +167,8 @@ export class AuthenticationReader extends PacketReader {
                 throw new Error(`unknow authenticate message with ${code}`)
             
         }
+
+        return this
     }
 }
 
@@ -879,7 +887,7 @@ export class StartupWriter {
     name = MESSAGE_NAME.StartupMessage
     /* code *///code = MESSAGE_CODE.StartupMessage
 
-    constructor(options: Record<string, string>) {
+    constructor(options: Record<string, string> = {}) {
 
     }
 

@@ -3,12 +3,17 @@
  * https://www.postgresql.org/docs/13/protocol-message-formats.html
  */
 import {
+    createHash
+} from './deps.ts'
+import {
     MESSAGE_CODE,
     MESSAGE_NAME,
 } from './const.ts'
 import {
     BufferReader,
-    BufferWriter
+    BufferWriter,
+    decode,
+    encode,
 } from './buffer.ts'
 import {
     // packetReader
@@ -91,6 +96,7 @@ export class Connection {
 
     connectionState: ConnectionState = ConnectionState.Connecting
     transactionState?: TransactionState
+    serverInfo?: Record<string, string> = {}
 
     conn?: Deno.Conn = undefined
 
@@ -100,24 +106,143 @@ export class Connection {
         const {
             host,
             port,
-            user,
-            password
         } = this.options
-        // Deno.conn
+        // tcp connect
         this.conn = await Deno.connect({
             transport: 'tcp',
             hostname: host,
             port: port
         })
+        // unix socket connect
         // this.conn = await Deno.connect({
         //     transport: 'unix', // unixSocket
         //     path: host
         // // deno-lint-ignore no-explicit-any
         // } as any)
+
+        // startup writer
+        this.writePacket(this.startup())
+        // authentication reader/writer
+        this.authenticate()
+
+        // connection
+        backtrace:
+        while (true) {
+            const readPacket = await this.readPacket()
+            // error
+            if (readPacket.name === MESSAGE_NAME.ErrorResponse) {
+                throw new Error(`error occured: ${readPacket.message}`)
+
+            } else if (readPacket.name === MESSAGE_NAME.BackendKeyData) {
+                Object.assign(this.serverInfo, {
+                    processId: readPacket.processId,
+                    secretKey: readPacket.secretKey
+                })
+                break
+            
+            } else if (readPacket.name === MESSAGE_NAME.ParameterStatus) {
+                Object.assign(this.serverInfo, {
+                    parameter: readPacket.parameter,
+                    value: readPacket.value
+                })
+                break
+
+            } else if (readPacket.name === MESSAGE_NAME.ReadyForQuery) {
+                this.transactionState = String.fromCharCode(
+                    readPacket.status
+                ) as TransactionState
+                // break label
+                break backtrace
+            }
+
+            this.connectionState = ConnectionState.Connected
+        }
     }
 
     close(): void {
 
+    }
+
+    private startup(): Uint8Array {
+        const {
+            user,
+            dbname,
+            applicationName
+        } = this.options
+
+        const clientEncoding = 'utf-8' // always utf-8
+        const startupWriter = new StartupWriter({
+            version: '3.0',
+            user: user,
+            dbname: dbname,
+            applicationName: applicationName,
+            clientEncoding: clientEncoding
+        })
+
+        const bufferLength = 2 + 2 + 
+                    user.length + 1 +
+                    dbname.length + 1 + 
+                    applicationName.length + 1
+                    clientEncoding.length + 1
+        const startupBuffer = new BufferWriter(new Uint8Array(bufferLength))
+
+        return startupWriter.write(startupBuffer)
+    }
+
+    private async authenticate(): Promise<boolean> {
+        const {
+            user,
+            password = ''
+        } = this.options
+
+        const authPacket = await this.readPacket()
+
+        // ok
+        if (authPacket.name === MESSAGE_NAME.AuthenticationOk) {
+            return true
+
+        // clearText
+        } else if (authPacket.name === MESSAGE_NAME.AuthenticationCleartextPassword) {
+            // build password writer
+            const passwordMessageWriter = new PasswordMessageWriter(password)
+            const passwordMessageBuffer = new BufferWriter(new Uint8Array(password.length + 6))
+            this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
+            // password response
+            const resultPacket = await this.readPacket()
+            if (resultPacket.name === MESSAGE_NAME.AuthenticationOk) {
+                return true
+            
+            } else if (resultPacket.name === MESSAGE_NAME.ErrorResponse) {
+                // TODO: AuthenticationError()
+                throw new Error(`authenticate error: ${resultPacket.message}`)
+            } else {
+                throw new Error(`authenticate unexpected error: ${resultPacket.code.toString(16)}`)
+            }
+        
+        // md5
+        } else if (authPacket.name === MESSAGE_NAME.AuthenticationMD5Password) {
+            // make md5 password
+            const hashword = postgresMd5Hashword(user, password, authPacket.salt)
+            // build password writer
+            const passwordMessageWriter = new PasswordMessageWriter(password)
+            const passwordMessageBuffer = new BufferWriter(new Uint8Array(hashword.length + 6))
+            this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
+            // password response
+            const resultPacket = await this.readPacket()
+            if (resultPacket.name === MESSAGE_NAME.AuthenticationOk) {
+                return true
+            
+            } else if (resultPacket.name === MESSAGE_NAME.ErrorResponse) {
+                // TODO: AuthenticationError()
+                throw new Error(`authenticate error: ${resultPacket.message}`)
+            } else {
+                throw new Error(`authenticate unexpected error: ${resultPacket.code.toString(16)}`)
+            }
+        
+        // other not supported
+        } else {
+            throw new Error(`authenticate not supported: ${authPacket.code.toString(16)}`)
+        }
     }
 
     private async readPacket() {
@@ -283,11 +408,13 @@ export class Connection {
     private async writePacket(buffer: Uint8Array) {
         // write and build packet from deno.conn
         try {
-            let padded = 0 // buffer length has been padded into deno.conn
+            // buffer length has been padded into deno.conn
+            let padded = 0 
             do {
-                // buffer.subarray without rewrite current buffer
+                // used buffer.subarray() without rewrite current buffer
                 padded += await this.conn!.write(buffer.subarray(padded))
-
+            // until buffer flfill into deno.conn
+            // loop for large buffer write into
             } while (padded < buffer.length)
 
         } catch (error) {
@@ -298,3 +425,20 @@ export class Connection {
 
 }
 
+
+/**
+ * https://www.postgresql.org/docs/current/protocol-flow.html
+ * password = concat('md5', md5(concat(md5(concat(password, username)), random-salt)))
+ */
+function postgresMd5Hashword(user: string, password: string, salt: Uint8Array): string {
+    // md5(concat(password, username))
+    const hash1 = createHash('md5').update(encode(password + user))
+    // concat(md5(concat(password, username)), random-salt)
+    const buff2 = new Uint8Array(hash1.length + salt.length)
+    buff2.set(hash1)
+    buff2.set(salt, hash1.length)
+    // md5(concat(md5(concat(password, username)), random-salt))
+    const hash2 = createHash('md5').update(buff2)
+    // concat('md5', md5(concat(md5(concat(password, username)), random-salt)))
+    return ['md5', hash2.toString('hex')].join('')
+}
