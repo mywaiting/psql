@@ -159,8 +159,16 @@ export class Connection {
         }
     }
 
-    close(): void {
-
+    async close(): Promise<void> {
+        if (this.connectionState !== ConnectionState.Closed) {
+            // Terminate Message sended before closed
+            const terminateWriter = new TerminateWriter()
+            const terminateBuffer = new BufferWriter(new Uint8Array(5))
+            await this.writePacket(terminateWriter.write(terminateBuffer))
+            // socket closed
+            this.conn!.close()
+            this.connectionState = ConnectionState.Closed
+        }
     }
 
     private startup(): Uint8Array {
@@ -224,7 +232,7 @@ export class Connection {
             // make md5 password
             const hashword = postgresMd5Hashword(user, password, authPacket.salt)
             // build password writer
-            const passwordMessageWriter = new PasswordMessageWriter(password)
+            const passwordMessageWriter = new PasswordMessageWriter(hashword)
             const passwordMessageBuffer = new BufferWriter(new Uint8Array(hashword.length + 6))
             this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
             // password response
