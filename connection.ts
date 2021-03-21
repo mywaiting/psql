@@ -16,6 +16,13 @@ import {
     encode,
 } from './buffer.ts'
 import {
+    QUERY_RESULT,
+    QueryOptions,
+    QueryResult,
+    ArrayQueryResult,
+    ObjectQueryResult,
+} from './cursor.ts'
+import {
     // packetReader
     PacketReader,
     AuthenticationReader,
@@ -96,7 +103,8 @@ export class Connection {
 
     connectionState: ConnectionState = ConnectionState.Connecting
     transactionState?: TransactionState
-    serverInfo?: Record<string, string> = {}
+    // deno-lint-ignore no-explicit-any
+    serverInfo?: Record<string, any> = {}
 
     conn?: Deno.Conn = undefined
 
@@ -141,10 +149,14 @@ export class Connection {
                 break
             
             } else if (readPacket.name === MESSAGE_NAME.ParameterStatus) {
-                Object.assign(this.serverInfo, {
-                    parameter: readPacket.parameter,
-                    value: readPacket.value
-                })
+                const parameter = readPacket.parameter
+                const value = readPacket.value
+                if (this.serverInfo && 'parameters' in this.serverInfo) {
+                    this.serverInfo.parameters[parameter] = value
+                } else {
+                    this.serverInfo!.parameters = {}
+                    this.serverInfo!.parameters[parameter] = value
+                }
                 break
 
             } else if (readPacket.name === MESSAGE_NAME.ReadyForQuery) {
@@ -170,6 +182,106 @@ export class Connection {
             this.connectionState = ConnectionState.Closed
         }
     }
+
+    async simpleQuery(options: QueryOptions, queryResult: QUERY_RESULT) {
+        // build query writer
+        const queryWriter = new QueryWriter(options.statement)
+        const queryBuffer = new BufferWriter(new Uint8Array(options.statement.length + 6))
+        await this.writePacket(queryWriter.write(queryBuffer))
+        // initial result
+        let result: QueryResult
+        switch (queryResult) {
+            case QUERY_RESULT.ARRAY:
+                result = new ArrayQueryResult(options)
+                break
+            case QUERY_RESULT.OBJECT:
+                result = new ObjectQueryResult(options)
+                break
+        }
+        // readPacket, when query startup, return once
+        let readPacket = await this.readPacket()
+        if (readPacket.name === MESSAGE_NAME.RowDescription) {
+            result.description = {
+                count: readPacket.count,
+                fields: readPacket.fields
+            }
+        
+        } else if (readPacket.name === MESSAGE_NAME.EmptyQueryResponse) {
+            // nothing done here
+        
+        } else if (readPacket.name === MESSAGE_NAME.ErrorResponse) {
+            const {
+                errcode,
+                message
+            } = readPacket
+            throw new Error(`query error occured: ${errcode} ${message}`)
+
+        } else if (readPacket.name === MESSAGE_NAME.NoticeResponse) {
+            result.warnings!.push(readPacket)
+
+        } else if (readPacket.name === MESSAGE_NAME.CommandComplete) {
+            const {
+                command,
+                count
+            } = readPacket
+            if (command) {
+                result.command = command
+            }
+            if (count) {
+                result.count = count
+            }
+
+        } else {
+            throw new Error(`unexpected query response: ${readPacket.code.toString(16)}`)
+        }
+        // loop for all rows data
+        while (true) {
+            readPacket = await this.readPacket()
+            if (readPacket.name === MESSAGE_NAME.DataRow) {
+                result.insert(readPacket.fields)
+
+            } else if (readPacket.name === MESSAGE_NAME.CommandComplete) {
+                const {
+                    command,
+                    count
+                } = readPacket
+                if (command) {
+                    result.command = command
+                }
+                if (count) {
+                    result.count = count
+                }
+            
+            } else if (readPacket.name === MESSAGE_NAME.ReadyForQuery) {
+                this.transactionState = String.fromCharCode(
+                    readPacket.status
+                ) as TransactionState
+                // loop existed here for return
+                return result
+
+            } else if (readPacket.name === MESSAGE_NAME.ErrorResponse) {
+                const {
+                    errcode,
+                    message
+                } = readPacket
+                throw new Error(`query error occured: ${errcode} ${message}`)
+    
+            } else if (readPacket.name === MESSAGE_NAME.NoticeResponse) {
+                result.warnings!.push(readPacket)
+
+            } else if (readPacket.name === MESSAGE_NAME.RowDescription) {
+                result.description = {
+                    count: readPacket.count,
+                    fields: readPacket.fields
+                }
+
+            } else {
+                throw new Error(`unexpected query response: ${readPacket.code.toString(16)}`)
+            }
+        }
+    }
+
+    async extendedQuery() {}
 
     private startup(): Uint8Array {
         const {
@@ -214,7 +326,7 @@ export class Connection {
             // build password writer
             const passwordMessageWriter = new PasswordMessageWriter(password)
             const passwordMessageBuffer = new BufferWriter(new Uint8Array(password.length + 6))
-            this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
+            await this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
             // password response
             const resultPacket = await this.readPacket()
             if (resultPacket.name === MESSAGE_NAME.AuthenticationOk) {
@@ -234,7 +346,7 @@ export class Connection {
             // build password writer
             const passwordMessageWriter = new PasswordMessageWriter(hashword)
             const passwordMessageBuffer = new BufferWriter(new Uint8Array(hashword.length + 6))
-            this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
+            await this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
             // password response
             const resultPacket = await this.readPacket()
             if (resultPacket.name === MESSAGE_NAME.AuthenticationOk) {
