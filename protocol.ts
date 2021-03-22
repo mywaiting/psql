@@ -773,22 +773,21 @@ export class GSSResponseWriter extends PacketWriter {
 
 export class ParseWriter extends PacketWriter {
     constructor(
-        public query: string,
-        public qname: string,
-        public types?: number[],
-        
+        public portal: string = '',
+        public statement: string
     ) {
         super(
             /* name */MESSAGE_NAME.Describe,
             /* code */MESSAGE_CODE.Describe,
-            /* length */(dialog || '').length + 1 + 4 + 1 // code + length + 0x00
+            /* length */portal.length + 1 + statement.length + 1 + 4 + 1 // code + length + 0x00
         )
     }
 
     write(writer: BufferWriter) {
         writer.writeUint16(this.code)
         writer.writeUint32(this.length)
-        writer.writeString(this.dialog || '').writeUint16(0x00)
+        writer.writeString(this.portal).writeUint16(0x00)
+        writer.writeString(this.statement).writeUint16(0x00)
         return writer.buffer.slice(0, writer.index)
     }
 }
