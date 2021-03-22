@@ -9,18 +9,63 @@ import {
 
 
 
+export interface CursorOptions {
+    
+}
+
 
 export class Cursor {
     constructor(
         public connection: Connection, 
-        public options: Record<string, string> = {}
+        public options: CursorOptions
     ) {}
-    execute() {}
+    // query() {}
 }
 
 
 export class ArrayCursor extends Cursor {
 
+    query<ResultT extends Array<unknown>>(
+        statement: string,
+        // deno-lint-ignore no-explicit-any
+        ...paramenters: any[]
+    ): Promise<ArrayQueryResult<ResultT>>
+    query<ResultT extends Array<unknown>>(
+        options: QueryOptions
+    ): Promise<ArrayQueryResult<ResultT>>
+    query<ResultT extends Array<unknown>>(
+        template: TemplateStringsArray,
+        // deno-lint-ignore no-explicit-any 
+        ...paramenters: any[]
+    ): Promise<ArrayQueryResult<ResultT>>
+    query<ResultT extends Array<unknown> = Array<unknown>>(
+        overloadArg: string | QueryOptions | TemplateStringsArray,
+        // deno-lint-ignore no-explicit-any 
+        ...paramenters: any[]
+    ): Promise<ArrayQueryResult<ResultT>> {
+        let queryOptions;
+        if (typeof overloadArg === 'string') {
+            queryOptions = new QueryOptions(overloadArg, ...paramenters)
+
+        // } else if (Array.isArray(overloadArg)) {
+        } else if (templateString(overloadArg)) {
+            const options = overloadArg.reduce((current, next, index) => {
+                return `${current}$${index}${next}`
+            })
+            queryOptions = new QueryOptions(options, ...paramenters)
+
+        } else {
+            queryOptions = new QueryOptions(overloadArg)
+
+        }
+
+        return this._query(queryOptions, QUERY_RESULT.ARRAY) as Promise<ArrayQueryResult<ResultT>>
+    }
+
+    _query(options: QueryOptions, queryResult: QUERY_RESULT): Promise<QueryResult> {
+
+    }
+    
 }
 
 
@@ -101,6 +146,8 @@ export class QueryOptions {
 /**
  * query result prepare for cursor query
  */
+const typeReader = new TypeReader()
+
 export class QueryResult {
     public command?: string // command tag
     public count?: number = 0 // rowCount
@@ -115,8 +162,6 @@ export class QueryResult {
         throw new Error(`not implemented`)
     }
 }
-
-const typeReader = new TypeReader()
 
 export class ArrayQueryResult<ResultT extends Array<unknown>> extends QueryResult {
     public rows: ResultT[] = [] // dataRow
@@ -167,4 +212,13 @@ export class ObjectQueryResult<ResultT extends Record<string, unknown>> extends 
 export enum QUERY_RESULT {
     ARRAY = 0x00,
     OBJECT = 0x01
+}
+
+
+// deno-lint-ignore no-explicit-any 
+function templateString(template: any): template is TemplateStringsArray {
+    if (Array.isArray(template)) {
+        return true
+    }
+    return false
 }
