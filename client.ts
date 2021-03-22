@@ -5,6 +5,7 @@ import {
 } from './connection.ts'
 import {
     Cursor,
+    CursorOptions,
     ArrayCursor,
     ObjectCursor
 } from './cursor.ts'
@@ -38,8 +39,11 @@ export class Client {
     /**
      * https://stackoverflow.com/questions/12802317/passing-class-as-parameter-causes-is-not-newable-error
      */
-    cursor(cursorFactory: new (connection: Connection) => ArrayCursor | ObjectCursor): Cursor {
-        const cursor = new cursorFactory(this.connection)
+    cursor(
+        cursorFactory: new (connection: Connection, options: CursorOptions) => ArrayCursor | ObjectCursor,
+        options: CursorOptions
+    ): Cursor {
+        const cursor = new cursorFactory(this.connection, options)
         return cursor
     }
 
