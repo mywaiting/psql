@@ -99,6 +99,11 @@ export interface ConnectionOptions {
     applicationName: string
 }
 
+/**
+ * connection flow 
+ * https://www.pgcon.org/2014/schedule/attachments/330_postgres-for-the-wire.pdf
+ * chinese version: http://mysql.taobao.org/monthly/2020/03/02/
+ */
 export class Connection {
 
     connectionState: ConnectionState = ConnectionState.Connecting
@@ -110,6 +115,18 @@ export class Connection {
 
     constructor(public readonly options: ConnectionOptions) {}
 
+    /**
+     * client/server packet flows:
+     * 
+     * client         --->  startup  --->           server
+     * client  <---  auth request | auth ok <---    server
+     * client ---> (optional) password message ---> server
+     * client      <---  parameter status <---      server
+     * client      <---  parameter status <---      server
+     * client      <---  parameter status <---      server
+     * client      <---  backend key data <---      server
+     * client      <---  ready for query  <---      server
+     */
     async connect(): Promise<void> {
         const {
             host,
@@ -134,12 +151,16 @@ export class Connection {
         this.authenticate()
 
         // connection
-        backtrace:
+        waiting:
         while (true) {
             const readPacket = await this.readPacket()
             // error
             if (readPacket.name === MESSAGE_NAME.ErrorResponse) {
-                throw new Error(`error occured: ${readPacket.message}`)
+                const {
+                    errcode,
+                    message
+                } = readPacket
+                throw new Error(`connect error occured: ${errcode} ${message}`)
 
             } else if (readPacket.name === MESSAGE_NAME.BackendKeyData) {
                 Object.assign(this.serverInfo, {
@@ -151,6 +172,8 @@ export class Connection {
             } else if (readPacket.name === MESSAGE_NAME.ParameterStatus) {
                 const parameter = readPacket.parameter
                 const value = readPacket.value
+                // this.serverInfo.parameters.server_version = ''
+                // this.serverInfo.parameters.client_encoding = ''
                 if (this.serverInfo && 'parameters' in this.serverInfo) {
                     this.serverInfo.parameters[parameter] = value
                 } else {
@@ -164,7 +187,7 @@ export class Connection {
                     readPacket.status
                 ) as TransactionState
                 // break label
-                break backtrace
+                break waiting
             }
 
             this.connectionState = ConnectionState.Connected
