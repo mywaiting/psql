@@ -22,6 +22,53 @@ export function decode(input?: Uint8Array): string {
 
 
 /**
+ * big endian and little endian transformer
+ * for int8/int16/int32/uint8/uint16/uint32
+ */
+export function readInt8BE(buffer: Uint8Array, offset: number): number {
+    // https://blog.vjeux.com/2013/javascript/conversion-from-uint8-to-int8-x-24.html
+    return buffer[offset] << 24 >> 24
+}
+
+export function readInt16BE(buffer: Uint8Array, offset: number): number {
+    offset = offset >>> 0 // to uint32
+    const value = buffer[offset + 1] | (buffer[offset] << 8)
+    return value & 0x8000 ? value | 0xffff0000 : value
+}
+
+export function readInt32BE(buffer: Uint8Array, offset: number): number {
+    offset = offset >>> 0
+    return (
+        (buffer[offset] << 24) |
+        (buffer[offset + 1] << 16) |
+        (buffer[offset + 2] << 8) |
+        (buffer[offset])
+    )
+}
+
+export function readUint8BE(buffer: Uint8Array, offset: number): number {
+    return buffer[offset]
+}
+
+export function readUint16BE(buffer: Uint8Array, offset: number): number {
+    offset = offset >>> 0
+    return buffer[offset] | (buffer[offset + 1] << 8)
+}
+
+export function readUint32BE(buffer: Uint8Array, offset: number): number {
+    offset = offset >>> 0
+    return (
+        buffer[offset] * 0x1000000 + 
+        (
+            (buffer[offset + 1] << 16) |
+            (buffer[offset + 2] << 8) |
+            (buffer[offset + 3])
+        )
+    )
+}
+
+
+/**
  * reader for postgresql buffer reading
  * big endian buffer
  */
@@ -61,31 +108,43 @@ export class BufferReader {
         return decode(buffer)
     }
 
-    readUints(length: number): number {
-        let uints = 0
-        for (let current = 0; current < length; current++) {
-            // big endian buffer
-            uints += this.buffer[this.index++] << (8 * current)
-        }
-        return uints
+    readInt8(): number {
+        const value = readInt8BE(this.buffer, this.index)
+        this.index += 1
+        return value
+    }
+
+    readInt16(): number {
+        const value = readInt16BE(this.buffer, this.index)
+        this.index += 2
+        return value
+    }
+
+    readInt32(): number {
+        const value = readInt32BE(this.buffer, this.index)
+        this.index += 4
+        return value
     }
 
     readUint8(): number {
-        return this.buffer[this.index++]
-        // return this.readUints(1)
+        const value = readUint8BE(this.buffer, this.index)
+        this.index += 1
+        return value
     }
 
     readUint16(): number {
-        return this.readUints(2)
+        const value = readUint16BE(this.buffer, this.index)
+        this.index += 2
+        return value
     }
 
     readUint32(): number {
-        return this.readUints(4)
+        const value = readUint32BE(this.buffer, this.index)
+        this.index += 4
+        return value
     }
 
-    readUint64(): number {
-        return this.readUints(8)
-    }
+
 
 }
 
@@ -124,34 +183,42 @@ export class BufferWriter {
         return this
     }
 
-    writeUints(length: number, digit: number): BufferWriter {
-        for (let current = 0; current < length; current++) {
-            // big endian buffer
-            this.buffer[this.index++] = (digit >> (current * 8)) & 0xff
-        }
+    writeInt8(digit: number): BufferWriter {
+        this.buffer[this.index++] = (digit >>> 0) & 0xff
+        return this
+    }
+
+    writeInt16(digit: number): BufferWriter {
+        this.buffer[this.index++] = (digit >>> 8) & 0xff
+        this.buffer[this.index++] = (digit >>> 0) & 0xff
+        return this
+    }
+
+    writeInt32(digit: number): BufferWriter {
+        this.buffer[this.index++] = (digit >>> 24) & 0xff
+        this.buffer[this.index++] = (digit >>> 16) & 0xff
+        this.buffer[this.index++] = (digit >>> 8) & 0xff
+        this.buffer[this.index++] = (digit >>> 0) & 0xff
         return this
     }
 
     writeUint8(digit: number): BufferWriter {
-        return this.writeUints(1, digit)
+        this.buffer[this.index++] = (digit >> 0) & 0xff
+        return this
     }
 
     writeUint16(digit: number): BufferWriter {
-        // this.buffer[this.index++] = (num >>> 8) & 0xff
-        // this.buffer[this.index++] = (num >>> 0) & 0xff
-        return this.writeUints(2, digit)
+        this.buffer[this.index++] = (digit >> 0) & 0xff
+        this.buffer[this.index++] = (digit >> 8) & 0xff
+        return this
     }
 
     writeUint32(digit: number): BufferWriter {
-        // this.buffer[this.index++] = (num >>> 24) & 0xff
-        // this.buffer[this.index++] = (num >>> 16) & 0xff
-        // this.buffer[this.index++] = (num >>> 8) & 0xff
-        // this.buffer[this.index++] = (num >>> 0) & 0xff
-        return this.writeUints(4, digit)
-    }
-
-    writeUint64(digit: number): BufferWriter {
-        return this.writeUints(8, digit)
+        this.buffer[this.index++] = (digit >> 0) & 0xff
+        this.buffer[this.index++] = (digit >> 8) & 0xff
+        this.buffer[this.index++] = (digit >> 16) & 0xff
+        this.buffer[this.index++] = (digit >> 24) & 0xff
+        return this
     }
 
 }
