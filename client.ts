@@ -12,6 +12,8 @@ import {
 
 
 
+
+
 export interface ClientOptions {
     host?: string,
     port?: string | number, // 5432
@@ -23,41 +25,12 @@ export interface ClientOptions {
 }
 
 
-export class Client {
+export class ClientOptionsReader {
 
-    connection: Connection
+    constructor(public options: string | ClientOptions = {}) {}
 
-    constructor(options: ClientOptions | string) {
-        const clientOptions = new _ClientOptions(options)
-        this.connection = new Connection(clientOptions.connectionOptions)
-    }
-
-    async connect(): Promise<void> {
-        await this.connection.connect()
-    }
-
-    /**
-     * https://stackoverflow.com/questions/12802317/passing-class-as-parameter-causes-is-not-newable-error
-     */
-    cursor(
-        cursorFactory: new (connection: Connection, options: CursorOptions) => ArrayCursor | ObjectCursor,
-        options: CursorOptions
-    ): Cursor {
-        const cursor = new cursorFactory(this.connection, options)
-        return cursor
-    }
-
-    close(): void {
-        this.connection.close()
-    }
-}
-
-
-class _ClientOptions {
-
-    connectionOptions: ConnectionOptions
-
-    constructor(options: string | ClientOptions = {}) {
+    read(): ConnectionOptions {
+        let options = this.options
         if (typeof options === 'string') {
             options = this.pqDSN(options)
         }
@@ -83,7 +56,7 @@ class _ClientOptions {
             port = '5432'
         }
 
-        const connectionOptions: ConnectionOptions = {
+        return {
             host: options.host ?? pqEnv.host ?? '127.0.0.1',
             port: parseInt(port),
             dbname: options.dbname ?? pqEnv.dbname ?? '',
@@ -92,7 +65,6 @@ class _ClientOptions {
             options: options.options ?? pqEnv.options,
             applicationName: options.applicationName ?? pqEnv.applicationName ?? 'pq'
         }
-        this.connectionOptions = connectionOptions
     }
 
     /**
@@ -149,19 +121,49 @@ class _ClientOptions {
 }
 
 
-export interface PoolOptions extends ClientOptions {
-    maxPool?: number
+export class Client {
+
+    connection: Connection
+
+    constructor(options: ClientOptions | string) {
+        const clientOptions = new ClientOptionsReader(options)
+        this.connection = new Connection(clientOptions.read())
+    }
+
+    async connect(): Promise<void> {
+        await this.connection.connect()
+    }
+
+    /**
+     * https://stackoverflow.com/questions/12802317/passing-class-as-parameter-causes-is-not-newable-error
+     */
+    cursor(
+        cursorFactory: new (connection: Connection, options: CursorOptions) => ArrayCursor | ObjectCursor,
+        options: CursorOptions
+    ): Cursor {
+        const cursor = new cursorFactory(this.connection, options)
+        return cursor
+    }
+
+    close(): void {
+        this.connection.close()
+    }
 }
 
 
 export class Pool {
 
-}
+    connections!: Array<Connection>
+    connectionOptions!: ConnectionOptions
 
+    maxConnections!: number
 
-class _PoolOptions extends _ClientOptions {
-
-    constructor(options: PoolOptions) {
-        super()
+    constructor(options: ClientOptions | string, maxConnections: number = 3) {
+        const clientOptions = new ClientOptionsReader(options)
+        this.connectionOptions = clientOptions.read()
+        this.maxConnections = maxConnections
     }
+
 }
+
+
