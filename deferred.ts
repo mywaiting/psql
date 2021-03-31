@@ -8,22 +8,29 @@ import {
 
 export class DeferredStack<T> {
 
-    items: Array<T>
+    entries: Array<T>
     queue: Array<Deferred<T>> = []
 
-    get length(): number {
-        return this.items.length
+    index: number
+
+    get available(): number {
+        return this.entries.length
     }
     
     constructor(
-        public max?: number,
+        public max: number = 10,
         public iterable?: Iterable<T>,
         public initial?: () => Promise<T>
     ) {
-        this.items = iterable ? [...iterable] : []
+        // deconstruct iterable to an array entries
+        this.entries = iterable ? [...iterable] : []
+        // current index default as entries length
+        this.index = this.entries.length
     }
 
-    push(item: T): boolean {
+    push(entry: T): void {
+        this.entries.push(entry)
+        // push one just release one queue lock/mutex
         if (this.queue.length) {
             const func = this.queue.shift()!
             func.resolve()
@@ -31,14 +38,30 @@ export class DeferredStack<T> {
     }
 
     async pop(): Promise<T> {
-        if (this.list.length > 0) {
-            return this.list.pop()!
-        } else if (this) {
-
+        /** 
+         * if not empty entries, pop one
+         * the pop one will be pushed into entries after using
+         */
+        if (this.entries.length) {
+            return this.entries.pop()!
+        
+        /**
+         * if empty entries, call initial() create new one
+         * the new one will be pished into entries after using
+         */
+        } else if (this.index < this.max && this.initial) {
+            this.index++
+            return await this.initial()
         }
+        /**
+         * pop one just acquire one queue lock/mutex
+         * 
+         * when max=1, `await func` means waiting lock/mutx released by others
+         * it will pop entry after lock/mutex release
+         */
         const func = deferred<T>()
         this.queue.push(func)
         await func
-        return this.queue.pop()!
+        return this.entries.pop()!
     }
 }
