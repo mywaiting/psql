@@ -9,6 +9,9 @@ import {
     ArrayCursor,
     ObjectCursor
 } from './cursor.ts'
+import {
+    DeferredStack
+} from './deferred.ts'
 
 
 
@@ -138,7 +141,7 @@ export class Client {
      * https://stackoverflow.com/questions/12802317/passing-class-as-parameter-causes-is-not-newable-error
      */
     cursor(
-        cursorFactory: new (connection: Connection, options: CursorOptions) => ArrayCursor | ObjectCursor,
+        cursorFactory: new (connection: Connection | ConnectionFunc, options: CursorOptions) => ArrayCursor | ObjectCursor,
         options: CursorOptions
     ): Cursor {
         const cursor = new cursorFactory(this.connection, options)
@@ -157,12 +160,52 @@ export class Pool {
     connectionOptions!: ConnectionOptions
 
     maxConnections!: number
+    availableConnections!: DeferredStack<Connection>
 
     constructor(options: ClientOptions | string, maxConnections: number = 3) {
         const clientOptions = new ClientOptionsReader(options)
         this.connectionOptions = clientOptions.read()
         this.maxConnections = maxConnections
     }
+
+    async connect(): Promise<void> {
+        // connections
+        const connections = new Array(this.maxConnections).map(async () => 
+            await this._connect()
+        )
+        this.connections = await Promise.all(connections)
+        // initial available connections
+        this.availableConnections = new DeferredStack(
+            /* max */this.maxConnections,
+            /* iterable */this.connections,
+            /* initial */this._connect.bind(this)
+        )
+    }
+
+    private async _connect(): Promise<Connection> {
+        const connection = new Connection(this.connectionOptions)
+        await connection.connect()
+        return connection
+    }
+
+    /**
+     * https://stackoverflow.com/questions/12802317/passing-class-as-parameter-causes-is-not-newable-error
+     */
+    cursor(
+        cursorFactory: new (connection: Connection | DeferredStack<Connection>, options: CursorOptions) => ArrayCursor | ObjectCursor,
+        options: CursorOptions
+    ): Cursor {
+        const cursor = new cursorFactory(this.availableConnections, options)
+        return cursor
+    }
+
+    async close(): Promise<void> {
+        while (this.availableConnections.length) {
+            const connection = await this.availableConnections.pop()
+            await connection.close()
+        }
+    }
+
 
 }
 

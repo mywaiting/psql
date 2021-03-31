@@ -16,12 +16,15 @@ import {
     encode,
 } from './buffer.ts'
 import {
-    QUERY_RESULT,
     QueryOptions,
     QueryResult,
+    QueryResultType,
     ArrayQueryResult,
     ObjectQueryResult,
 } from './cursor.ts'
+import {
+    DeferredStack
+} from './deferred.ts'
 import {
     // packetReader
     PacketReader,
@@ -99,6 +102,7 @@ export interface ConnectionOptions {
     applicationName: string
 }
 
+
 /**
  * connection flow 
  * https://www.pgcon.org/2014/schedule/attachments/330_postgres-for-the-wire.pdf
@@ -108,8 +112,14 @@ export class Connection {
 
     connectionState: ConnectionState = ConnectionState.Connecting
     transactionState?: TransactionState
+
     // deno-lint-ignore no-explicit-any
-    serverInfo?: Record<string, any> = {}
+    serverInfo?: Record<string, any> = {} // for server parameters/status
+    queryLock: DeferredStack<undefined> = new DeferredStack(
+        /* max */1,
+        /* iterable */[undefined],
+        /* initial */
+    )
 
     conn?: Deno.Conn = undefined
 
@@ -206,24 +216,37 @@ export class Connection {
         }
     }
 
-    async execute(options: QueryOptions, result: QUERY_RESULT): Promise<QueryResult> {
+    async query(options: QueryOptions, type: QueryResultType): Promise<QueryResult> {
         if (this.connectionState !== ConnectionState.Connected) {
             throw new Error(`connection initial before execute`)
         }
+        // acquire query lock
+        await this.queryLock.pop()
+        // exec query
         try {
             if (options.parameters!.length === 0) {
-                return await this.simpleQuery(options, result)
+                return await this.simpleQuery(options, type)
             } else {
-                return await this.extendedQuery(options, result)
+                return await this.prepareQuery(options, type)
             }
+
         } catch (error) {
             throw new Error(error.message)
+
+        } finally {
+            // release query lock
+            this.queryLock.push(undefined)
         }
     }
 
+    /**
+     * client/server packet flows:
+     * 
+     * 
+     */
     private async simpleQuery(
         options: QueryOptions, 
-        queryResult: QUERY_RESULT
+        type: QueryResultType
     ): Promise<QueryResult> {
         // build query writer
         const queryWriter = new QueryWriter(options.statement)
@@ -231,11 +254,11 @@ export class Connection {
         await this.writePacket(queryWriter.write(queryBuffer))
         // initial result
         let result: QueryResult
-        switch (queryResult) {
-            case QUERY_RESULT.ARRAY:
+        switch (type) {
+            case QueryResultType.ARRAY:
                 result = new ArrayQueryResult(options)
                 break
-            case QUERY_RESULT.OBJECT:
+            case QueryResultType.OBJECT:
                 result = new ObjectQueryResult(options)
                 break
         }
@@ -322,9 +345,9 @@ export class Connection {
         }
     }
 
-    private async extendedQuery(
+    private async prepareQuery(
         options: QueryOptions, 
-        queryResult: QUERY_RESULT
+        type: QueryResultType
     ): Promise<QueryResult> {
         // build parse writer
         const parseWriter = new ParseWriter(options.portal, options.statement)
@@ -366,11 +389,11 @@ export class Connection {
 
         // initial result
         let result: QueryResult
-        switch (queryResult) {
-            case QUERY_RESULT.ARRAY:
+        switch (type) {
+            case QueryResultType.ARRAY:
                 result = new ArrayQueryResult(options)
                 break
-            case QUERY_RESULT.OBJECT:
+            case QueryResultType.OBJECT:
                 result = new ObjectQueryResult(options)
                 break
         }
