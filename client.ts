@@ -141,9 +141,10 @@ export class Client {
      * https://stackoverflow.com/questions/12802317/passing-class-as-parameter-causes-is-not-newable-error
      */
     cursor(
-        cursorFactory: new (connection: Connection | ConnectionFunc, options: CursorOptions) => ArrayCursor | ObjectCursor,
+        cursorFactory: new (connection: Connection | DeferredStack<Connection>, options: CursorOptions) => ArrayCursor | ObjectCursor,
         options: CursorOptions
     ): Cursor {
+        // pass connection instance to cursor factory
         const cursor = new cursorFactory(this.connection, options)
         return cursor
     }
@@ -195,6 +196,7 @@ export class Pool {
         cursorFactory: new (connection: Connection | DeferredStack<Connection>, options: CursorOptions) => ArrayCursor | ObjectCursor,
         options: CursorOptions
     ): Cursor {
+        // pass deferred stack connections instance to cursor factory
         const cursor = new cursorFactory(this.availableConnections, options)
         return cursor
     }

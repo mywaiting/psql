@@ -36,13 +36,14 @@ export class Cursor {
         // if connections pool, then acquire this connection
         if (this.connections) {
             connection = await this.connections.pop()
+        // this only normal connection without pool
         } else {
             connection = this.connection as Connection
         }
-        
+
         try {
-            // exec query
-            return connection.query(options, type)
+            // execute connection query
+            return await connection.query(options, type)
 
         } finally {
             // if connections pool, then release this connection
