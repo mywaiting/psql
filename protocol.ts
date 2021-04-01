@@ -7,8 +7,8 @@ import {
     MESSAGE_CODE,
     MESSAGE_NAME,
     AUTHENTICATION,
-    ERROR_MESSAGE_FIELD,
-    NOTICE_MESSAGE_FIELD
+    ERROR_MESSAGE,
+    NOTICE_MESSAGE
 } from './const.ts'
 import {
     BufferReader,
@@ -57,71 +57,90 @@ function dumpPacket(reader: BufferReader) {
 // backend(B)/server --> frontend(F)/client
 export class PacketReader {
     constructor(
-        public name: MESSAGE_NAME, 
-        public code: MESSAGE_CODE, 
-        public length: number
+        public packetName: MESSAGE_NAME, 
+        public packetCode: MESSAGE_CODE, 
+        public packetLength: number
     ) {}
 
     read(reader: BufferReader) {}
+    
+    // call this first before all other handle flows
+    readHeader(reader: BufferReader) {
+        this.packetCode = reader.readUint8() as MESSAGE_CODE // Byte1()
+        this.packetLength = reader.readInt32() // Int32(8)
+    }
 }
 
 export class AuthenticationReader extends PacketReader {
 
     read = (reader: BufferReader): {
-        name: MESSAGE_NAME,
-        code: MESSAGE_CODE,
-        length: number
+        packetName: MESSAGE_NAME,
+        packetCode: MESSAGE_CODE,
+        packetLength: number
     // deno-lint-ignore no-explicit-any
     } & any => {
-    // read(reader: BufferReader) {
-        const code = reader.readUint32()
+        // default is authentication ok packet
+        this.packetName = MESSAGE_NAME.AuthenticationOk
+        this.readHeader(reader)
+
+        // read authentication code for authenticate message
+        const code = reader.readInt32() as AUTHENTICATION
 
         switch (code) {
             case AUTHENTICATION.Ok:
-                this.name = MESSAGE_NAME.AuthenticationOk
+                this.packetName = MESSAGE_NAME.AuthenticationOk
                 break
 
             case AUTHENTICATION.KerberosV5:
-                this.name = MESSAGE_NAME.AuthenticationKerberosV5
+                this.packetName = MESSAGE_NAME.AuthenticationKerberosV5
                 break
 
             case AUTHENTICATION.CleartextPassword:
-                if (this.length === 8) {
-                    this.name = MESSAGE_NAME.AuthenticationCleartextPassword
+                if (this.packetLength === 8) {
+                    this.packetName = MESSAGE_NAME.AuthenticationCleartextPassword
                 }
                 break
 
             case AUTHENTICATION.MD5Password:
-                if (this.length === 12) {
-                    this.name = MESSAGE_NAME.AuthenticationMD5Password
-                    const salt = reader.read(4)
+                if (this.packetLength === 12) {
+                    this.packetName = MESSAGE_NAME.AuthenticationMD5Password
+                    const salt: Uint8Array = reader.read(4)
                     return {
-                        name: this.name,
-                        code: this.code,
-                        length: this.length,
+                        packetName: this.packetName,
+                        packetCode: this.packetCode,
+                        packetLength: this.packetLength,
                         salt: salt
                     }
                 }
                 break
 
             case AUTHENTICATION.SCMCredential:
-                this.name = MESSAGE_NAME.AuthenticationSCMCredential
+                this.packetName = MESSAGE_NAME.AuthenticationSCMCredential
                 break
 
             case AUTHENTICATION.GSS:
-                this.name = MESSAGE_NAME.AuthenticationGSS
+                this.packetName = MESSAGE_NAME.AuthenticationGSS
                 break
 
-            case AUTHENTICATION.GSSContinue:
-                this.name = MESSAGE_NAME.AuthenticationGSSContinue
-                break
+            case AUTHENTICATION.GSSContinue: { // deno-lint no-case-declarations
+                this.packetName = MESSAGE_NAME.AuthenticationGSSContinue
+                // except Int32(packetLength) + Int32(AUTHENTICATION) = 8
+                const data: Uint8Array = reader.read(this.packetLength - 8)
+                return {
+                    packetName: this.packetName,
+                    packetCode: this.packetCode,
+                    packetLength: this.packetLength,
+                    data: data
+                }
+                // with return statement, without break statement
+            }
 
             case AUTHENTICATION.SSPI:
-                this.name = MESSAGE_NAME.AuthenticationSSPI
+                this.packetName = MESSAGE_NAME.AuthenticationSSPI
                 break
 
             case AUTHENTICATION.SASL: { // deno-lint no-case-declarations
-                this.name = MESSAGE_NAME.AuthenticationSASL
+                this.packetName = MESSAGE_NAME.AuthenticationSASL
                 const mechanisms = []
                 let mechanism: string
                 do {
@@ -131,33 +150,35 @@ export class AuthenticationReader extends PacketReader {
                     }
                 } while (mechanism)
                 return {
-                    name: this.name,
-                    code: this.code,
-                    length: this.length,
+                    packetName: this.packetName,
+                    packetCode: this.packetCode,
+                    packetLength: this.packetLength,
                     mechanisms: mechanisms
                 }
                 // with return statement, without break statement
             }
 
             case AUTHENTICATION.SASLContinue: { // deno-lint no-case-declarations
-                this.name = MESSAGE_NAME.AuthenticationSASLContinue
-                const data = reader.read(this.length - 8)
+                this.packetName = MESSAGE_NAME.AuthenticationSASLContinue
+                // except Int32(packetLength) + Int32(AUTHENTICATION) = 8
+                const data: Uint8Array = reader.read(this.packetLength - 8)
                 return {
-                    name: this.name,
-                    code: this.code,
-                    length: this.length,
+                    packetName: this.packetName,
+                    packetCode: this.packetCode,
+                    packetLength: this.packetLength,
                     data: data
                 }
                 // with return statement, without break statement
             }
 
             case AUTHENTICATION.SASLFinal: { // deno-lint no-case-declarations
-                this.name = MESSAGE_NAME.AuthenticationSASLFinal
-                const data = reader.read(this.length - 8)
+                this.packetName = MESSAGE_NAME.AuthenticationSASLFinal
+                // except Int32(packetLength) + Int32(AUTHENTICATION) = 8
+                const data = reader.read(this.packetLength - 8)
                 return {
-                    name: this.name,
-                    code: this.code,
-                    length: this.length,
+                    packetName: this.packetName,
+                    packetCode: this.packetCode,
+                    packetLength: this.packetLength,
                     data: data
                 }
                 // with return statement, without break statement
@@ -175,12 +196,15 @@ export class AuthenticationReader extends PacketReader {
 export class BackendKeyDataReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const processId = reader.readUint32()
-        const secretKey = reader.readUint32()
+        this.packetName = MESSAGE_NAME.BackendKeyData
+        this.readHeader(reader)
+
+        const processId = reader.readInt32()
+        const secretKey = reader.readInt32()
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
             processId: processId,
             secretKey: secretKey
         }
@@ -221,13 +245,16 @@ export class CommandCompleteReader extends PacketReader {
      * For a COPY command, the tag is COPY rows where rows is the number of rows copied. (Note: the row count appears only in PostgreSQL 8.2 and later.)
      */
     read(reader: BufferReader) {
+        this.packetName = MESSAGE_NAME.CommandComplete
+        this.readHeader(reader)
+
         const commandTag = reader.readSlice(0x00)
         const metches = COMMAND_TAG_REGEXP.exec(commandTag)
         if (metches) {
             return {
-                name: this.name,
-                code: this.code,
-                length: this.length,
+                packetName: this.packetName,
+                packetCode: this.packetCode,
+                packetLength: this.packetLength,
                 commandTag: commandTag,
                 // INSERT | DELETE | UPDATE | DELECT | MOVE | FETCH | COPY
                 command: metches[1],
@@ -237,9 +264,9 @@ export class CommandCompleteReader extends PacketReader {
             }
         } else {
             return {
-                name: this.name,
-                code: this.code,
-                length: this.length,
+                packetName: this.packetName,
+                packetCode: this.packetCode,
+                packetLength: this.packetLength,
                 commandTag: commandTag
             }
         }
@@ -249,12 +276,16 @@ export class CommandCompleteReader extends PacketReader {
 export class CopyDataReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const chunk = reader.read(this.length - 4)
+        this.packetName = MESSAGE_NAME.CopyData
+        this.readHeader(reader)
+
+        // except Int32(packetLength) + Int32(AUTHENTICATION) = 8
+        const data: Uint8Array = reader.read(this.packetLength - 8)
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
-            chunk: chunk
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            data: data
         }
     }
 }
@@ -271,19 +302,22 @@ export class CopyDoneReader extends PacketReader {
 export class CopyInResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const format = reader.readUint8() !== 0
-        const count = reader.readUint16() // columnCount
-        const types = []
+        this.packetName = MESSAGE_NAME.CopyInResponse
+        this.readHeader(reader)
+
+        const format = reader.readInt8() // 0x00 = 'text', 0x01 = 'binary'
+        const count = reader.readInt16() // columns count
+        const codes = [] // the format codes to be used for each column
         for (let index = 0; index < count; index++) {
-            types[index] = reader.readUint16()
+            codes[index] = reader.readInt16()
         }
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
-            format: format,
-            count: count,
-            types: types
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            format: format, // 0x00 = 'text', 0x01 = 'binary'
+            count: count,   // columns count
+            codes: codes    // each must presently be zero (text) or one (binary)
         }
     }
 }
@@ -291,19 +325,22 @@ export class CopyInResponseReader extends PacketReader {
 export class CopyOutResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const format = reader.readUint8() !== 0
-        const count = reader.readUint16() // columnCount
-        const types = []
+        this.packetName = MESSAGE_NAME.CopyOutResponse
+        this.readHeader(reader)
+
+        const format = reader.readInt8() // 0x00 = 'text', 0x01 = 'binary'
+        const count = reader.readInt16() // columns count
+        const codes = [] // the format codes to be used for each column
         for (let index = 0; index < count; index++) {
-            types[index] = reader.readUint16()
+            codes[index] = reader.readInt16()
         }
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
-            format: format,
-            count: count,
-            types: types
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            format: format, // 0x00 = 'text', 0x01 = 'binary'
+            count: count,   // columns count
+            codes: codes    // each must presently be zero (text) or one (binary)
         }
     }
 }
@@ -311,19 +348,22 @@ export class CopyOutResponseReader extends PacketReader {
 export class CopyBothResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const format = reader.readUint8() !== 0
-        const count = reader.readUint16() // columnCount
-        const types = []
+        this.packetName = MESSAGE_NAME.CopyBothResponse
+        this.readHeader(reader)
+
+        const format = reader.readInt8() // 0x00 = 'text', 0x01 = 'binary'
+        const count = reader.readInt16() // columns count
+        const codes = [] // the format codes to be used for each column
         for (let index = 0; index < count; index++) {
-            types[index] = reader.readUint16()
+            codes[index] = reader.readInt16()
         }
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
-            format: format,
-            count: count,
-            types: types
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            format: format, // 0x00 = 'text', 0x01 = 'binary'
+            count: count,   // columns count
+            codes: codes    // each must presently be zero (text) or one (binary)
         }
     }
 }
@@ -331,18 +371,22 @@ export class CopyBothResponseReader extends PacketReader {
 export class DataRowReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const count = reader.readUint16() // fieldCount
-        const fields = new Array(count)
+        this.packetName = MESSAGE_NAME.DataRow
+        this.readHeader(reader)
+
+        const count = reader.readInt16() // fields count
+        const fields: (Uint8Array | null)[] = new Array(count)
+
         for (let index = 0; index < count; index++) {
-            const length = reader.readUint32()
-            fields[index] = length === -1 ? null : reader.readString(length)
+            const length = reader.readInt32()
+            fields[index] = length === -1 ? null : reader.read(length)
         }
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
-            count: count,
-            fields: fields
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            count: count,   // fields count
+            fields: fields  // fields array
         }
     }
 }
@@ -359,7 +403,9 @@ export class EmptyQueryResponseReader extends PacketReader {
 export class ErrorResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.name = MESSAGE_NAME.ErrorResponse
+        this.packetName = MESSAGE_NAME.ErrorResponse
+        this.readHeader(reader)
+
         const data: Record<string, string> = {}
         let name = reader.readString(1)
         while (name !== '\0') {
@@ -367,27 +413,27 @@ export class ErrorResponseReader extends PacketReader {
             name = reader.readString(1)
         }
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
-            // error message field
-            severity: data[ERROR_MESSAGE_FIELD.SEVERITY],
-            errcode:  data[ERROR_MESSAGE_FIELD.CODE], // conflict with packet code's name
-            message:  data[ERROR_MESSAGE_FIELD.MESSAGE],
-            detail:   data[ERROR_MESSAGE_FIELD.DETAIL],
-            hint:     data[ERROR_MESSAGE_FIELD.HINT],
-            position: data[ERROR_MESSAGE_FIELD.POSITION],
-            internalPosition: data[ERROR_MESSAGE_FIELD.INTERNAL_POSITION],
-            internalQuery:    data[ERROR_MESSAGE_FIELD.INTERNAL_QUERY],
-            where:      data[ERROR_MESSAGE_FIELD.WHERE],
-            schema:     data[ERROR_MESSAGE_FIELD.SCHEMA],
-            table:      data[ERROR_MESSAGE_FIELD.TABLE],
-            column:     data[ERROR_MESSAGE_FIELD.COLUMN],
-            dataType:   data[ERROR_MESSAGE_FIELD.DATA_TYPE],
-            constraint: data[ERROR_MESSAGE_FIELD.CONSTRAINT],
-            file:    data[ERROR_MESSAGE_FIELD.FILE],
-            line:    data[ERROR_MESSAGE_FIELD.LINE],
-            routine: data[ERROR_MESSAGE_FIELD.ROUTINE]
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            // error message
+            severity         : data[ERROR_MESSAGE.SEVERITY],
+            code             : data[ERROR_MESSAGE.CODE],
+            message          : data[ERROR_MESSAGE.MESSAGE],
+            detail           : data[ERROR_MESSAGE.DETAIL],
+            hint             : data[ERROR_MESSAGE.HINT],
+            position         : data[ERROR_MESSAGE.POSITION],
+            internalPosition : data[ERROR_MESSAGE.INTERNAL_POSITION],
+            internalQuery    : data[ERROR_MESSAGE.INTERNAL_QUERY],
+            where            : data[ERROR_MESSAGE.WHERE],
+            schema           : data[ERROR_MESSAGE.SCHEMA],
+            table            : data[ERROR_MESSAGE.TABLE],
+            column           : data[ERROR_MESSAGE.COLUMN],
+            dataType         : data[ERROR_MESSAGE.DATA_TYPE],
+            constraint       : data[ERROR_MESSAGE.CONSTRAINT],
+            file             : data[ERROR_MESSAGE.FILE],
+            line             : data[ERROR_MESSAGE.LINE],
+            routine          : data[ERROR_MESSAGE.ROUTINE]
         }
     }
 }
@@ -395,14 +441,48 @@ export class ErrorResponseReader extends PacketReader {
 export class FunctionCallResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const count = reader.readUint32()
-        const result = count === -1 ? null : reader.readString(count) 
+        this.packetName = MESSAGE_NAME.FunctionCallResponse
+        this.readHeader(reader)
+
+        /**
+         * the length of the function result value, in bytes (this count does not include itself). 
+         * can be zero. as a special case, -1 indicates a NULL function result. 
+         * no value bytes follow in the NULL case.
+         */
+        const length = reader.readInt32()
+        const result = length === -1 ? null : reader.read(length) 
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
-            count: count,
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            length: length,
             result: result
+        }
+    }
+}
+
+export class NegotiateProtocolVersionReader extends PacketReader {
+
+    read(reader: BufferReader) {
+        this.packetName = MESSAGE_NAME.NegotiateProtocolVersion
+        this.readHeader(reader)
+
+        // Newest minor protocol version supported by the server for 
+        // the major protocol version requested by the client
+        const newestVersion = reader.readInt32()
+        const count = reader.readInt32()
+        // for protocol option not recognized by the server, just option name
+        const options: string[] = []
+        for (let index = 0; index < count; index++) {
+            options[index] = reader.readSlice(0x00)
+        }
+        return {
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            newestVersion: newestVersion,
+            count: count,
+            options: options
         }
     }
 }
@@ -419,7 +499,9 @@ export class NoDataReader extends PacketReader {
 export class NoticeResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.name = MESSAGE_NAME.NoticeResponse
+        this.packetName = MESSAGE_NAME.NoticeResponse
+        this.readHeader(reader)
+
         const data: Record<string, string> = {}
         let name = reader.readString(1)
         while (name !== '\0') {
@@ -427,27 +509,27 @@ export class NoticeResponseReader extends PacketReader {
             name = reader.readString(1)
         }
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
-            // error message field
-            severity: data[NOTICE_MESSAGE_FIELD.SEVERITY],
-            errcode:  data[NOTICE_MESSAGE_FIELD.CODE], // conflict with packet code's name
-            message:  data[NOTICE_MESSAGE_FIELD.MESSAGE],
-            detail:   data[NOTICE_MESSAGE_FIELD.DETAIL],
-            hint:     data[NOTICE_MESSAGE_FIELD.HINT],
-            position: data[NOTICE_MESSAGE_FIELD.POSITION],
-            internalPosition: data[NOTICE_MESSAGE_FIELD.INTERNAL_POSITION],
-            internalQuery:    data[NOTICE_MESSAGE_FIELD.INTERNAL_QUERY],
-            where:      data[NOTICE_MESSAGE_FIELD.WHERE],
-            schema:     data[NOTICE_MESSAGE_FIELD.SCHEMA],
-            table:      data[NOTICE_MESSAGE_FIELD.TABLE],
-            column:     data[NOTICE_MESSAGE_FIELD.COLUMN],
-            dataType:   data[NOTICE_MESSAGE_FIELD.DATA_TYPE],
-            constraint: data[NOTICE_MESSAGE_FIELD.CONSTRAINT],
-            file:    data[NOTICE_MESSAGE_FIELD.FILE],
-            line:    data[NOTICE_MESSAGE_FIELD.LINE],
-            routine: data[NOTICE_MESSAGE_FIELD.ROUTINE]
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            // notice message field
+            severity         : data[NOTICE_MESSAGE.SEVERITY],
+            code             : data[NOTICE_MESSAGE.CODE],
+            message          : data[NOTICE_MESSAGE.MESSAGE],
+            detail           : data[NOTICE_MESSAGE.DETAIL],
+            hint             : data[NOTICE_MESSAGE.HINT],
+            position         : data[NOTICE_MESSAGE.POSITION],
+            internalPosition : data[NOTICE_MESSAGE.INTERNAL_POSITION],
+            internalQuery    : data[NOTICE_MESSAGE.INTERNAL_QUERY],
+            where            : data[NOTICE_MESSAGE.WHERE],
+            schema           : data[NOTICE_MESSAGE.SCHEMA],
+            table            : data[NOTICE_MESSAGE.TABLE],
+            column           : data[NOTICE_MESSAGE.COLUMN],
+            dataType         : data[NOTICE_MESSAGE.DATA_TYPE],
+            constraint       : data[NOTICE_MESSAGE.CONSTRAINT],
+            file             : data[NOTICE_MESSAGE.FILE],
+            line             : data[NOTICE_MESSAGE.LINE],
+            routine          : data[NOTICE_MESSAGE.ROUTINE]
         }
     }
 }
@@ -455,14 +537,19 @@ export class NoticeResponseReader extends PacketReader {
 export class NotificationResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const process = reader.readUint32()
+        this.packetName = MESSAGE_NAME.NotificationResponse
+        this.readHeader(reader)
+
+        const processId = reader.readInt32()
+        // the name of the channel that the notify has been raised on
         const channel = reader.readSlice(0x00)
+        // the “payload” string passed from the notifying process
         const payload = reader.readSlice(0x00)
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
-            process: process,
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            processId: processId,
             channel: channel,
             payload: payload
         }
@@ -471,22 +558,42 @@ export class NotificationResponseReader extends PacketReader {
 
 export class ParameterDescriptionReader extends PacketReader {
 
-    // not used now, but implements for future
     read(reader: BufferReader) {
+        this.packetName = MESSAGE_NAME.ParameterDescription
+        this.readHeader(reader)
 
+        // the number of parameters used by the statement (can be zero)
+        const count = reader.readInt16()
+        // specifies the object ID of the parameter data type
+        const dataTypeIds = []
+        for (let index = 0; index < count; index++) {
+            dataTypeIds[index] = reader.readInt32()
+        }
+        return {
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            count: count,
+            dataTypeIds: dataTypeIds
+        }
     }
 }
 
 export class ParameterStatusReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const parameter = reader.readSlice(0x00)
+        this.packetName = MESSAGE_NAME.ParameterStatus
+        this.readHeader(reader)
+
+        // the name of the run-time parameter being reported.
+        const name = reader.readSlice(0x00)
+        // the current value of the parameter.
         const value = reader.readSlice(0x00)
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
-            parameter: parameter,
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
+            name: name,
             value: value
         }
     }
@@ -513,11 +620,20 @@ export class PortalSuspendedReader extends PacketReader {
 export class ReadyForQueryReader extends PacketReader {
 
     read(reader: BufferReader) {
-        const status = reader.readString(1)
+        this.packetName = MESSAGE_NAME.ReadyForQuery
+        this.readHeader(reader)
+
+        /** 
+         * current backend transaction status indicator. Possible values are: 
+         * 0x49 = 73 = 'I' if idle (not in a transaction block); 
+         * 0x54 = 84 = 'T' if in a transaction block; 
+         * 0x45 = 69 = 'E' if in a failed transaction block (queries will be rejected until block is ended)
+         */
+        const status = reader.readInt8() // 0x49 | 0x54 | 0x45
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
             status: status
         }
     }
@@ -525,22 +641,14 @@ export class ReadyForQueryReader extends PacketReader {
 
 export class RowDescriptionReader extends PacketReader {
 
-    readField = (reader: BufferReader): {
-        name: string,
-        tableId: number,
-        columnId: number,
-        dataTypeId: number,
-        dataTypeSize: number,
-        dataTypeModifier: number,
-        format: number // 0 = 'text', 1 = 'text'
-    } => {
+    readField(reader: BufferReader) {
         const name = reader.readSlice(0x00)
-        const tableId = reader.readUint32()
-        const columnId = reader.readUint16()
-        const dataTypeId = reader.readUint32()
-        const dataTypeSize = reader.readUint16()
-        const dataTypeModifier = reader.readUint32()
-        const format = reader.readUint16() // 0 = 'text', 1 = 'text'
+        const tableId = reader.readInt32()
+        const columnId = reader.readInt16()
+        const dataTypeId = reader.readInt32()
+        const dataTypeSize = reader.readInt16()
+        const dataTypeModifier = reader.readInt32()
+        const format = reader.readInt16() // 0x00 = 'text', 0x01 = 'binary'
         return {
             name: name,
             tableId: tableId,
@@ -553,15 +661,19 @@ export class RowDescriptionReader extends PacketReader {
     }
 
     read(reader: BufferReader) {
-        const count = reader.readUint16()
+        this.packetName = MESSAGE_NAME.RowDescription
+        this.readHeader(reader)
+
+        // specifies the number of fields in a row (can be zero)
+        const count = reader.readInt16()
         const fields = new Array(count)
         for (let index = 0; index < count; index++) {
             fields[index] = this.readField(reader)
         }
         return {
-            name: this.name,
-            code: this.code,
-            length: this.length,
+            packetName: this.packetName,
+            packetCode: this.packetCode,
+            packetLength: this.packetLength,
             count: count,
             fields: fields
         }

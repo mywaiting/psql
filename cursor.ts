@@ -52,6 +52,7 @@ export class Cursor {
             }
         }
     }
+
 }
 
 
@@ -94,7 +95,6 @@ export class ArrayCursor extends Cursor {
         return this._query(queryOptions, QueryResultType.ARRAY) as Promise<ArrayQueryResult<ResultT>>
     }
 
-    
 }
 
 
@@ -205,6 +205,7 @@ export class QueryOptions {
         const converter = options.converter ? options.converter : new TypeWriter().encode
         return (options.parameters || []).map(converter)
     }
+    
 }
 
 

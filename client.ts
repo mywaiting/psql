@@ -145,7 +145,7 @@ export class Client {
         options: CursorOptions
     ): Cursor {
         // pass connection instance to cursor factory
-        const cursor = new cursorFactory(this.connection, options)
+        const cursor = new cursorFactory(this.connection as Connection, options)
         return cursor
     }
 
@@ -197,12 +197,12 @@ export class Pool {
         options: CursorOptions
     ): Cursor {
         // pass deferred stack connections instance to cursor factory
-        const cursor = new cursorFactory(this.availableConnections, options)
+        const cursor = new cursorFactory(this.availableConnections as DeferredStack<Connection>, options)
         return cursor
     }
 
     async close(): Promise<void> {
-        while (this.availableConnections.length) {
+        while (this.availableConnections.available) {
             const connection = await this.availableConnections.pop()
             await connection.close()
         }

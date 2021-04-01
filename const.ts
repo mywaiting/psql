@@ -144,7 +144,7 @@ export const enum AUTHENTICATION {
  * error and notice message fields, same as them
  * https://www.postgresql.org/docs/13/protocol-error-fields.html
  */
-export const enum ERROR_MESSAGE_FIELD {
+export const enum ERROR_MESSAGE {
     SEVERITY          = 'S', // always present.
     // SEVERITY          = 'V', // present only by PostgreSQL versions 9.6 and later
     CODE              = 'C',
@@ -165,7 +165,7 @@ export const enum ERROR_MESSAGE_FIELD {
     ROUTINE           = 'R',
 }
 
-export const enum NOTICE_MESSAGE_FIELD {
+export const enum NOTICE_MESSAGE {
     SEVERITY          = 'S', // always present.
     // SEVERITY          = 'V', // present only by PostgreSQL versions 9.6 and later
     CODE              = 'C',

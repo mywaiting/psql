@@ -62,6 +62,7 @@ export class DeferredStack<T> {
         const func = deferred<T>()
         this.queue.push(func)
         await func
+        // after waiting lock/mutex released, return pop entry
         return this.entries.pop()!
     }
 }
