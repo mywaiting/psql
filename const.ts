@@ -125,7 +125,7 @@ export const enum MESSAGE_NAME {
 /**
  * specifies that authentication message with int32
  */
-export const enum AUTHENTICATION {
+export const enum AUTHENTICATION_CODE {
     Ok                = 0x00,
     KerberosV5        = 0x02,
     CleartextPassword = 0x03,
@@ -531,4 +531,15 @@ export const enum OID_TYPE_NAME {
 	'_REGNAMESPACE'    = '_regnamespace',
 	'REGROLE'          = 'regrole',
 	'_REGROLE'         = '_regrole',
+}
+
+
+/**
+ * parameters format codes
+ * 0x00 = 'text, text mode
+ * 0x01 = 'binary', binary mode
+ */
+export const enum PARAMETER_FORMAT_CODE {
+    'TEXT' = 0x00,
+    'BINARY' = 0x01,
 }
