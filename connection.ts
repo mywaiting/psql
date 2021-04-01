@@ -86,10 +86,16 @@ export enum ConnectionState {
     Closed,
 }
 
+/** 
+ * current backend transaction status indicator. Possible values are: 
+ * 0x49 = 73 = 'I' if idle (not in a transaction block); 
+ * 0x54 = 84 = 'T' if in a transaction block; 
+ * 0x45 = 69 = 'E' if in a failed transaction block (queries will be rejected until block is ended)
+ */
 export enum TransactionState {
-    Idle = 'I',
-    IdleInTransaction = "T",
-    InFailedTransaction = "E",
+    Idle = 0x49,
+    IdleInTransaction = 0x54,
+    InFailedTransaction = 0x45,
 }
 
 export interface ConnectionOptions {
