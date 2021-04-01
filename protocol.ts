@@ -6,9 +6,10 @@
 import {
     MESSAGE_CODE,
     MESSAGE_NAME,
-    AUTHENTICATION,
+    AUTHENTICATION_CODE,
     ERROR_MESSAGE,
-    NOTICE_MESSAGE
+    NOTICE_MESSAGE,
+    PARAMETER_FORMAT_CODE
 } from './const.ts'
 import {
     BufferReader,
@@ -62,12 +63,14 @@ export class PacketReader {
         public packetLength: number
     ) {}
 
-    read(reader: BufferReader) {}
+    read(reader: BufferReader) {
+        throw new Error('not implemented')
+    }
     
     // call this first before all other handle flows
     readHeader(reader: BufferReader) {
         this.packetCode = reader.readUint8() as MESSAGE_CODE // Byte1()
-        this.packetLength = reader.readInt32() // Int32(8)
+        this.packetLength = reader.readInt32()               // Int32()
     }
 }
 
@@ -84,24 +87,24 @@ export class AuthenticationReader extends PacketReader {
         this.readHeader(reader)
 
         // read authentication code for authenticate message
-        const code = reader.readInt32() as AUTHENTICATION
+        const code = reader.readInt32() as AUTHENTICATION_CODE
 
         switch (code) {
-            case AUTHENTICATION.Ok:
+            case AUTHENTICATION_CODE.Ok:
                 this.packetName = MESSAGE_NAME.AuthenticationOk
                 break
 
-            case AUTHENTICATION.KerberosV5:
+            case AUTHENTICATION_CODE.KerberosV5:
                 this.packetName = MESSAGE_NAME.AuthenticationKerberosV5
                 break
 
-            case AUTHENTICATION.CleartextPassword:
+            case AUTHENTICATION_CODE.CleartextPassword:
                 if (this.packetLength === 8) {
                     this.packetName = MESSAGE_NAME.AuthenticationCleartextPassword
                 }
                 break
 
-            case AUTHENTICATION.MD5Password:
+            case AUTHENTICATION_CODE.MD5Password:
                 if (this.packetLength === 12) {
                     this.packetName = MESSAGE_NAME.AuthenticationMD5Password
                     const salt: Uint8Array = reader.read(4)
@@ -114,17 +117,17 @@ export class AuthenticationReader extends PacketReader {
                 }
                 break
 
-            case AUTHENTICATION.SCMCredential:
+            case AUTHENTICATION_CODE.SCMCredential:
                 this.packetName = MESSAGE_NAME.AuthenticationSCMCredential
                 break
 
-            case AUTHENTICATION.GSS:
+            case AUTHENTICATION_CODE.GSS:
                 this.packetName = MESSAGE_NAME.AuthenticationGSS
                 break
 
-            case AUTHENTICATION.GSSContinue: { // deno-lint no-case-declarations
+            case AUTHENTICATION_CODE.GSSContinue: { // deno-lint no-case-declarations
                 this.packetName = MESSAGE_NAME.AuthenticationGSSContinue
-                // except Int32(packetLength) + Int32(AUTHENTICATION) = 8
+                // except Int32(packetLength) + Int32(AUTHENTICATION_CODE) = 8
                 const data: Uint8Array = reader.read(this.packetLength - 8)
                 return {
                     packetName: this.packetName,
@@ -135,11 +138,11 @@ export class AuthenticationReader extends PacketReader {
                 // with return statement, without break statement
             }
 
-            case AUTHENTICATION.SSPI:
+            case AUTHENTICATION_CODE.SSPI:
                 this.packetName = MESSAGE_NAME.AuthenticationSSPI
                 break
 
-            case AUTHENTICATION.SASL: { // deno-lint no-case-declarations
+            case AUTHENTICATION_CODE.SASL: { // deno-lint no-case-declarations
                 this.packetName = MESSAGE_NAME.AuthenticationSASL
                 const mechanisms = []
                 let mechanism: string
@@ -158,9 +161,9 @@ export class AuthenticationReader extends PacketReader {
                 // with return statement, without break statement
             }
 
-            case AUTHENTICATION.SASLContinue: { // deno-lint no-case-declarations
+            case AUTHENTICATION_CODE.SASLContinue: { // deno-lint no-case-declarations
                 this.packetName = MESSAGE_NAME.AuthenticationSASLContinue
-                // except Int32(packetLength) + Int32(AUTHENTICATION) = 8
+                // except Int32(packetLength) + Int32(AUTHENTICATION_CODE) = 8
                 const data: Uint8Array = reader.read(this.packetLength - 8)
                 return {
                     packetName: this.packetName,
@@ -171,9 +174,9 @@ export class AuthenticationReader extends PacketReader {
                 // with return statement, without break statement
             }
 
-            case AUTHENTICATION.SASLFinal: { // deno-lint no-case-declarations
+            case AUTHENTICATION_CODE.SASLFinal: { // deno-lint no-case-declarations
                 this.packetName = MESSAGE_NAME.AuthenticationSASLFinal
-                // except Int32(packetLength) + Int32(AUTHENTICATION) = 8
+                // except Int32(packetLength) + Int32(AUTHENTICATION_CODE) = 8
                 const data = reader.read(this.packetLength - 8)
                 return {
                     packetName: this.packetName,
@@ -279,7 +282,7 @@ export class CopyDataReader extends PacketReader {
         this.packetName = MESSAGE_NAME.CopyData
         this.readHeader(reader)
 
-        // except Int32(packetLength) + Int32(AUTHENTICATION) = 8
+        // except Int32(packetLength) + Int32(AUTHENTICATION_CODE) = 8
         const data: Uint8Array = reader.read(this.packetLength - 8)
         return {
             packetName: this.packetName,
@@ -305,9 +308,9 @@ export class CopyInResponseReader extends PacketReader {
         this.packetName = MESSAGE_NAME.CopyInResponse
         this.readHeader(reader)
 
-        const format = reader.readInt8() // 0x00 = 'text', 0x01 = 'binary'
+        const format = reader.readInt8() as PARAMETER_FORMAT_CODE // 0x00 = 'text', 0x01 = 'binary'
         const count = reader.readInt16() // columns count
-        const codes = [] // the format codes to be used for each column
+        const codes: PARAMETER_FORMAT_CODE[] = [] // the format codes to be used for each column
         for (let index = 0; index < count; index++) {
             codes[index] = reader.readInt16()
         }
@@ -328,9 +331,9 @@ export class CopyOutResponseReader extends PacketReader {
         this.packetName = MESSAGE_NAME.CopyOutResponse
         this.readHeader(reader)
 
-        const format = reader.readInt8() // 0x00 = 'text', 0x01 = 'binary'
+        const format = reader.readInt8() as PARAMETER_FORMAT_CODE // 0x00 = 'text', 0x01 = 'binary'
         const count = reader.readInt16() // columns count
-        const codes = [] // the format codes to be used for each column
+        const codes: PARAMETER_FORMAT_CODE[] = [] // the format codes to be used for each column
         for (let index = 0; index < count; index++) {
             codes[index] = reader.readInt16()
         }
@@ -351,9 +354,9 @@ export class CopyBothResponseReader extends PacketReader {
         this.packetName = MESSAGE_NAME.CopyBothResponse
         this.readHeader(reader)
 
-        const format = reader.readInt8() // 0x00 = 'text', 0x01 = 'binary'
+        const format = reader.readInt8() as PARAMETER_FORMAT_CODE // 0x00 = 'text', 0x01 = 'binary'
         const count = reader.readInt16() // columns count
-        const codes = [] // the format codes to be used for each column
+        const codes: PARAMETER_FORMAT_CODE[] = [] // the format codes to be used for each column
         for (let index = 0; index < count; index++) {
             codes[index] = reader.readInt16()
         }
@@ -386,7 +389,7 @@ export class DataRowReader extends PacketReader {
             packetCode: this.packetCode,
             packetLength: this.packetLength,
             count: count,   // fields count
-            fields: fields  // fields array
+            fields: fields  // fields Array(Uint8Array[])
         }
     }
 }
@@ -629,12 +632,12 @@ export class ReadyForQueryReader extends PacketReader {
          * 0x54 = 84 = 'T' if in a transaction block; 
          * 0x45 = 69 = 'E' if in a failed transaction block (queries will be rejected until block is ended)
          */
-        const status = reader.readInt8() // 0x49 | 0x54 | 0x45
+        const transactionStatus = reader.readInt8() // 0x49 | 0x54 | 0x45
         return {
             packetName: this.packetName,
             packetCode: this.packetCode,
             packetLength: this.packetLength,
-            status: status
+            transactionStatus: transactionStatus
         }
     }
 }
@@ -648,7 +651,7 @@ export class RowDescriptionReader extends PacketReader {
         const dataTypeId = reader.readInt32()
         const dataTypeSize = reader.readInt16()
         const dataTypeModifier = reader.readInt32()
-        const format = reader.readInt16() // 0x00 = 'text', 0x01 = 'binary'
+        const format = reader.readInt16() as PARAMETER_FORMAT_CODE // 0x00 = 'text', 0x01 = 'binary'
         return {
             name: name,
             tableId: tableId,
@@ -690,13 +693,19 @@ export class RowDescriptionReader extends PacketReader {
 // frontend(F)/client --> backend(B)/server
 export class PacketWriter {
     constructor(
-        public name: MESSAGE_NAME, 
-        public code: MESSAGE_CODE,
-        public length: number
+        public packetName: MESSAGE_NAME, 
+        public packetCode: MESSAGE_CODE, 
+        public packetLength: number
     ) {}
 
     write(writer: BufferWriter): Uint8Array {
         throw new Error('not implemented')
+    }
+
+    // call this first before all other packet build flows
+    writeHeader(writer: BufferWriter) {
+        writer.writeUint8(this.packetCode)   // Byte1()
+        writer.writeInt32(this.packetLength) // Int32()
     }
 }
 
@@ -704,11 +713,9 @@ export class BindWriter extends PacketWriter {
     constructor(
         public portal?: string,
         public statement?: string,
-        public binary?: boolean,
-        // deno-lint-ignore no-explicit-any
-        public values?: any[],
-        // deno-lint-ignore no-explicit-any
-        public valueMapper?: (param: any, index: number) => any
+        public format?: boolean,
+        public values?: unknown[],
+        public valueMapper?: (param: unknown, index: number) => unknown
     ) {
         super(
             /* name */MESSAGE_NAME.Bind,
@@ -718,6 +725,54 @@ export class BindWriter extends PacketWriter {
     }
 
     write(writer: BufferWriter) {
+        const portal = this.portal || '' // an empty string selects the unnamed portal
+        const statement = this.statement || '' // an empty string selects the unnamed prepared statement
+        const values = this.values || []
+        // check Uint8Array exists,
+        const hasBinaryValues = values.some((value) => value instanceof Uint8Array)
+
+        writer.writeString(portal).writeUint8(0x00) // portal name, c string
+        writer.writeString(statement).writeUint8(0x00) // statement name, c string
+
+        // the number of parameter format codes that follow
+        if (hasBinaryValues) {
+            writer.writeInt16(values.length)
+            values.forEach((value) => {
+                writer.writeInt16(value instanceof Uint8Array 
+                    ? PARAMETER_FORMAT_CODE.BINARY 
+                    : PARAMETER_FORMAT_CODE.TEXT
+                )
+            })
+        } else {
+            writer.writeInt16(0x00)
+        }
+        // this must match the number of parameters needed by the query
+        writer.writeInt16(values.length)
+        // the following pair of fields appear for each parameter
+        values.forEach((value) => {
+            // as `null`
+            if (value === null || typeof values === 'undefined') {
+                writer.writeInt32(-1)
+            // as `unit8array
+            } else if (value instanceof Uint8Array) {
+                writer.writeInt32(value.length)
+                writer.write(value)
+            // as `string`
+            } else {
+                const byteLength = encode(value as string).length
+                writer.writeInt32(byteLength)
+                writer.writeString(value as string)
+            }
+        })
+        /**
+         * the number of result-column format codes that follow (denoted R below). 
+         * this can be zero to indicate that there are no result columns 
+         * or that the result columns should all use the default format (text); 
+         * or one, in which case the specified format code is applied to all result columns (if any); 
+         * or it can equal the actual number of result columns of the query.
+         */
+        writer.writeInt16(0x00)
+        
         return writer.buffer.slice(0, writer.index)
     }
 }
