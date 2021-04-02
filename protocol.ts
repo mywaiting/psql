@@ -9,7 +9,9 @@ import {
     AUTHENTICATION_CODE,
     ERROR_MESSAGE,
     NOTICE_MESSAGE,
-    PARAMETER_FORMAT_CODE
+    PARAMETER_FORMAT_CODE,
+    PORTAL_STATEMENT_TYPE,
+    TRANSACTION_STATUS
 } from './const.ts'
 import {
     BufferReader,
@@ -17,6 +19,9 @@ import {
     decode,
     encode
 } from './buffer.ts'
+import {
+    TypeWriter
+} from './types.ts'
 
 
 const DEBUG = false
@@ -632,7 +637,7 @@ export class ReadyForQueryReader extends PacketReader {
          * 0x54 = 84 = 'T' if in a transaction block; 
          * 0x45 = 69 = 'E' if in a failed transaction block (queries will be rejected until block is ended)
          */
-        const transactionStatus = reader.readInt8() // 0x49 | 0x54 | 0x45
+        const transactionStatus = reader.readInt8() as TRANSACTION_STATUS
         return {
             packetName: this.packetName,
             packetCode: this.packetCode,
@@ -702,26 +707,43 @@ export class PacketWriter {
         throw new Error('not implemented')
     }
 
-    // call this first before all other packet build flows
+    /**
+     * !!!call this last after all other packet build flows!!!
+     * 
+     * almost all case, `buffer` pass to BufferWriter known its length
+     * so here just except BYTE1(packetCode) + Int32(packetLength) = 5
+     */
     writeHeader(writer: BufferWriter) {
-        writer.writeUint8(this.packetCode)   // Byte1()
-        writer.writeInt32(this.packetLength) // Int32()
+        const bufferLength = writer.index
+        this.packetLength = bufferLength + 4
+        // enlarge 5 bytes for packet header and reset current writer's index
+        writer.enlarge(bufferLength + 5)
+        writer.index = 0
+        // set BYTE1(packetCode) + Int32(packetLength) = 5
+        writer.writeUint8(this.packetCode)   // Byte1() = 1 byte
+        writer.writeInt32(this.packetLength) // Int32() = 4 byte
+        // recover current writer's index as buffer.length
+        writer.index = bufferLength + 5
     }
 }
+
+
+const typeWriter = new TypeWriter()
 
 export class BindWriter extends PacketWriter {
     constructor(
         public portal?: string,
         public statement?: string,
-        public format?: boolean,
         public values?: unknown[],
-        public valueMapper?: (param: unknown, index: number) => unknown
+        public valueMapper?: (value: unknown) => null | string | Uint8Array
     ) {
         super(
             /* name */MESSAGE_NAME.Bind,
             /* code */MESSAGE_CODE.Bind,
-            /* length */512 // min buffer length by guess 512
+            /* length */1024 // min buffer length by guess 512
         )
+        // valueMapper default as TypeWriter.encode
+        this.valueMapper = valueMapper ? valueMapper : typeWriter.encode
     }
 
     write(writer: BufferWriter) {
@@ -750,18 +772,19 @@ export class BindWriter extends PacketWriter {
         writer.writeInt16(values.length)
         // the following pair of fields appear for each parameter
         values.forEach((value) => {
+            const mappedValue = this.valueMapper!(value)
             // as `null`
-            if (value === null || typeof values === 'undefined') {
+            if (mappedValue === null || typeof mappedValue === 'undefined') {
                 writer.writeInt32(-1)
             // as `unit8array
-            } else if (value instanceof Uint8Array) {
-                writer.writeInt32(value.length)
-                writer.write(value)
+            } else if (mappedValue instanceof Uint8Array) {
+                writer.writeInt32(mappedValue.length)
+                writer.write(mappedValue)
             // as `string`
             } else {
-                const byteLength = encode(value as string).length
+                const byteLength = encode(mappedValue).length
                 writer.writeInt32(byteLength)
-                writer.writeString(value as string)
+                writer.writeString(mappedValue)
             }
         })
         /**
@@ -773,49 +796,79 @@ export class BindWriter extends PacketWriter {
          */
         writer.writeInt16(0x00)
         
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
 
-export class CancelRequestWriter extends PacketWriter {
+/**
+ * cancelRequest without packetCode that is not a standard postgres packet.
+ * so here, can not extends from PacketWriter, just a single alone class.
+ */
+export class CancelRequestWriter {
 
+    packetName: MESSAGE_NAME = MESSAGE_NAME.CancelRequest
+    // packetCode: MESSAGE_CODE = '' // cancelRequest without packetCode
+    packetLength = 0x10 // parseInt(packetLength, 10) = 16
+
+    constructor(
+        public processId: number,
+        public secretKey: number
+    ) {}
+
+    write(writer: BufferWriter): Uint8Array {
+        writer.writeInt16(this.packetLength)
+        /**
+         * the cancel request code. The value is chosen to 
+         * contain 1234 in the most significant 16 bits, 
+         * and 5678 in the least significant 16 bits
+         */
+        writer.writeInt32(80877102)
+        writer.writeInt32(this.processId)
+        writer.writeInt32(this.secretKey)
+        return writer.buffer.slice(0, writer.index)
+    }
 }
 
 export class CloseWriter extends PacketWriter {
     constructor(
-        public action: 'S' | 'P',
-        public dialog?: string
+        public type: PORTAL_STATEMENT_TYPE,
+        public name: string = ''
     ) {
         super(
             /* name */MESSAGE_NAME.Close,
             /* code */MESSAGE_CODE.Close,
-            /* length */(dialog || '').length + 1 + 4 + 1 // code + length + 0x00
+            /* length */name.length + 2 // name.length + 0x00 + BYTE1(type)
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
-        writer.writeString(this.dialog || '').writeUint16(0x00)
+        writer.writeUint8(this.type)
+        writer.writeString(this.name).writeUint8(0x00)
+
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
 
 export class CopyDataWriter extends PacketWriter {
     constructor(
-        public chunk: Uint8Array
+        public data: Uint8Array
     ) {
         super(
             /* name */MESSAGE_NAME.CopyData,
             /* code */MESSAGE_CODE.CopyData,
-            /* length */chunk.length + 1 + 4// code + length
+            /* length */data.length
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
-        writer.write(this.chunk)
+        writer.write(this.data)
+
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
@@ -825,13 +878,13 @@ export class CopyDoneWriter extends PacketWriter {
         super(
             /* name */MESSAGE_NAME.CopyDone,
             /* code */MESSAGE_CODE.CopyDone,
-            /* length */1 + 4// code + length
+            /* length */0// code + length
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
@@ -843,53 +896,59 @@ export class CopyFailWriter extends PacketWriter {
         super(
             /* name */MESSAGE_NAME.CopyFail,
             /* code */MESSAGE_CODE.CopyFail,
-            /* length */message.length + 1 + 4// code + length
+            /* length */message.length
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
-        writer.writeString(this.message).writeUint16(0x00)
+        writer.writeString(this.message).writeUint8(0x00)
+        
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
 
 export class DescribeWriter extends PacketWriter {
     constructor(
-        public action: 'S' | 'P',
-        public dialog?: string
+        public type: PORTAL_STATEMENT_TYPE,
+        public name: string = ''
     ) {
         super(
             /* name */MESSAGE_NAME.Describe,
             /* code */MESSAGE_CODE.Describe,
-            /* length */(dialog || '').length + 1 + 4 + 1 // code + length + 0x00
+            /* length */name.length + 2 // name.length + 0x00 + BYTE1(type)
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
-        writer.writeString(this.dialog || '').writeUint16(0x00)
+        writer.writeUint8(this.type)
+        writer.writeString(this.name).writeUint8(0x00)
+
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
 
 export class ExecuteWriter extends PacketWriter {
     constructor(
-        public portal?: string,
-        public rows?: number
+        public portal: string = '',
+        public rows: number = 0
     ) {
         super(
-            /* name */MESSAGE_NAME.Flush,
-            /* code */MESSAGE_CODE.Flush,
-            /* length */1 + 4// code + length
+            /* name */MESSAGE_NAME.Execute,
+            /* code */MESSAGE_CODE.Execute,
+            /* length */portal.length + 4
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
+        writer.writeString(this.portal).writeUint8(0x00)
+        writer.writeInt32(this.rows)
+
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
@@ -899,23 +958,24 @@ export class FlushWriter extends PacketWriter {
         super(
             /* name */MESSAGE_NAME.Flush,
             /* code */MESSAGE_CODE.Flush,
-            /* length */1 + 4// code + length
+            /* length */0
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
 
+// TODO: waiting to complete the code
 export class FunctionCallWriter extends PacketWriter {
     constructor() {
         super(
             /* name */MESSAGE_NAME.FunctionCall,
             /* code */MESSAGE_CODE.FunctionCall,
-            /* length */1 + 4// code + length
+            /* length */0
         )
     }
 
@@ -925,55 +985,70 @@ export class FunctionCallWriter extends PacketWriter {
 }
 
 export class GSSResponseWriter extends PacketWriter {
-    constructor() {
+    constructor(
+        public data: Uint8Array
+    ) {
         super(
             /* name */MESSAGE_NAME.GSSResponse,
             /* code */MESSAGE_CODE.GSSResponse,
-            /* length */1 + 4// code + length
+            /* length */data.length
         )
     }
 
     write(writer: BufferWriter) {
+        writer.write(this.data)
+
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
 
 export class ParseWriter extends PacketWriter {
     constructor(
-        public portal: string = '',
-        public statement: string
+        public statement: string = '', // an empty string selects the unnamed prepared statement
+        public query: string, 
     ) {
         super(
-            /* name */MESSAGE_NAME.Describe,
-            /* code */MESSAGE_CODE.Describe,
-            /* length */portal.length + 1 + statement.length + 1 + 4 + 1 // code + length + 0x00
+            /* name */MESSAGE_NAME.Parse,
+            /* code */MESSAGE_CODE.Parse,
+            /* length */statement.length + 1 + query.length + 1 + 2
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
-        writer.writeString(this.portal).writeUint16(0x00)
-        writer.writeString(this.statement).writeUint16(0x00)
+        writer.writeString(this.statement).writeUint8(0x00)
+        writer.writeString(this.query).writeUint8(0x00)
+        /**
+         * the number of parameter data types specified (can be zero). 
+         * note that this is not an indication of the number of parameters 
+         * that might appear in the query string, only the number that 
+         * the frontend wants to prespecify types for.
+         */
+        writer.writeInt16(0x00)
+
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
 
 export class PasswordMessageWriter extends PacketWriter {
     constructor(
-        public password: string
+        public password: string = ''
     ) {
         super(
             /* name */MESSAGE_NAME.PasswordMessage,
             /* code */MESSAGE_CODE.PasswordMessage,
-            /* length */password.length + 1 + 4 + 1 // code + length + 0x00
+            /* length */password.length + 1
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
-        writer.writeString(this.password).writeUint16(0x00)
+        writer.writeString(this.password).writeUint8(0x00)
+
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
@@ -985,56 +1060,65 @@ export class QueryWriter extends PacketWriter {
         super(
             /* name */MESSAGE_NAME.Query,
             /* code */MESSAGE_CODE.Query,
-            /* length */query.length + 1 + 4 + 1 // code + length + 0x00
+            /* length */query.length + 1
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
-        writer.writeString(this.query).writeUint16(0x00)
+        writer.writeString(this.query).writeUint8(0x00)
+
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
 
 export class SASLInitialResponseWriter extends PacketWriter {
     constructor(
-        public mechanism: string,
-        public initialResponse: string
+        public mechanism: string = '',
+        public initialResponse?: Uint8Array
 
     ) {
         super(
             /* name */MESSAGE_NAME.SASLInitialResponse,
             /* code */MESSAGE_CODE.SASLInitialResponse,
-            /* length */mechanism.length + initialResponse.length + 1 + 4 + 1 // code + length + 0x00
+            /* length */mechanism.length + 1 + 4 + (initialResponse ? initialResponse.length : 0)
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
-        writer.writeString(this.mechanism).writeUint16(0x00)
-        writer.writeUint32(this.initialResponse.length)
-        writer.writeString(this.initialResponse).writeUint16(0x00)
+        writer.writeString(this.mechanism).writeUint8(0x00)
+        // with initialResponse
+        if (this.initialResponse) {
+            writer.writeInt32(this.initialResponse.length)
+            writer.write(this.initialResponse)
+        // without initialResponse
+        } else {
+            writer.writeInt32(-1)
+        }
+
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
 
 export class SASLResponseWriter extends PacketWriter {
     constructor(
-        public mechanism: string
+        public data: Uint8Array
     ) {
         super(
             /* name */MESSAGE_NAME.SASLResponse,
             /* code */MESSAGE_CODE.SASLResponse,
-            /* length */mechanism.length + 1 + 4 + 1 // code + length + 0x00
+            /* length */data.length
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
-        writer.writeString(this.mechanism).writeUint16(0x00)
+        writer.write(this.data)
+
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
@@ -1042,15 +1126,24 @@ export class SASLResponseWriter extends PacketWriter {
 /**
  * SSLRequest has no initial message-type byte.
  * https://www.postgresql.org/docs/13/protocol-message-formats.html#SSLRequest
+ * 
+ * sslRequest without packetCode that is not a standard postgres packet.
+ * so here, can not extends from PacketWriter, just a single alone class.
  */
 export class SSLRequestWriter {
-    name = MESSAGE_NAME.SSLRequest
-    /* code *///code = MESSAGE_CODE.SSLRequest
-    length = 8 // 4 + 4
+    
+    packetName: MESSAGE_NAME = MESSAGE_NAME.SSLRequest
+    // packetCode: MESSAGE_CODE = '' // sslRequest without packetCode
+    packetLength = 0x10 // parseInt(packetLength, 10) = 16
 
     write(writer: BufferWriter) {
-        writer.writeUint32(this.length)
-        writer.writeUint32(80877103)
+        writer.writeInt16(this.packetLength)
+        /**
+         * the SSL request code. The value is chosen to contain 1234 in the most significant 16 bits, 
+         * and 5679 in the least significant 16 bits. (To avoid confusion, 
+         * this code must not be the same as any protocol version number.)
+         */
+        writer.writeInt32(80877103)
         return writer.buffer.slice(0, writer.index)
     }
 }
@@ -1058,15 +1151,24 @@ export class SSLRequestWriter {
 /**
  * GSSENCRequest has no initial message-type byte.
  * https://www.postgresql.org/docs/13/protocol-message-formats.html#GSSENCRequest
+ * 
+ * gssencRequest without packetCode that is not a standard postgres packet.
+ * so here, can not extends from PacketWriter, just a single alone class.
  */
 export class GSSENCRequestWriter {
-    name = MESSAGE_NAME.GSSENCRequest
-    /* code *///code = MESSAGE_CODE.GSSENCRequest
-    length = 8 // 4 + 4
+    
+    packetName: MESSAGE_NAME = MESSAGE_NAME.GSSENCRequest
+    // packetCode: MESSAGE_CODE = '' // gssencRequest without packetCode
+    packetLength = 0x10 // parseInt(packetLength, 10) = 16
 
     write(writer: BufferWriter) {
-        writer.writeUint32(this.length)
-        writer.writeUint32(80877104)
+        writer.writeInt16(this.packetLength)
+        /**
+         * the GSSAPI Encryption request code. The value is chosen to contain 1234 in the most significant 16 bits, 
+         * and 5680 in the least significant 16 bits. (To avoid confusion, 
+         * this code must not be the same as any protocol version number.)
+         */
+        writer.writeInt32(80877104)
         return writer.buffer.slice(0, writer.index)
     }
 }
@@ -1075,17 +1177,53 @@ export class GSSENCRequestWriter {
  * for historical reasons, the very first message sent by the client 
  * (the startup message) has no initial message-type byte.
  * https://www.postgresql.org/docs/13/protocol-overview.html#PROTOCOL-MESSAGE-CONCEPTS
+ * 
+ * startup without packetCode that is not a standard postgres packet.
  * so here, can not extends from PacketWriter, just a single alone class.
  */
 export class StartupWriter {
-    name = MESSAGE_NAME.StartupMessage
-    /* code *///code = MESSAGE_CODE.StartupMessage
+    
+    packetName: MESSAGE_NAME = MESSAGE_NAME.StartupMessage
+    // packetCode: MESSAGE_CODE = '' // gssencRequest without packetCode
+    packetLength = 0x00 // unknown packetLength, default is zero
 
-    constructor(options: Record<string, string> = {}) {
-
-    }
+    constructor(
+        public user: string = '',
+        public database?: string,
+        public applicationName: string = 'pq',
+        public clientEncoding: string = 'utf-8'
+    ) {}
 
     write(writer: BufferWriter) {
+        // packetLength setted to zero, and modified after all
+        writer.writeInt32(0x00)
+        /**
+         * the protocol version number. current is 3.0 = 196608(BE)
+         * the most significant 16 bits are the major version number (3 for the protocol described here). 
+         * the least significant 16 bits are the minor version number (0 for the protocol described here).
+         */
+        writer.writeInt16(0x03).writeInt16(0x00)
+        // user
+        writer.writeString('user').writeUint8(0x00)
+        writer.writeString(this.user).writeUint8(0x00)
+        // database, default to the user name
+        writer.writeString('database').writeUint8(0x00)
+        writer.writeString(this.database ?? this.user).writeUint8(0x00)
+        // application_name
+        writer.writeString('application_name').writeUint8(0x00)
+        writer.writeString(this.applicationName).writeUint8(0x00)
+        // client_encoding
+        writer.writeString('client_encoding').writeUint8(0x00)
+        writer.writeString(this.clientEncoding).writeUint8(0x00)
+        // terminator with empty
+        writer.writeString('').writeUint8(0x00)
+
+        // reset current packetLength
+        this.packetLength = writer.index
+        writer.index = 0
+        writer.writeInt32(this.packetLength)
+        writer.index = this.packetLength
+
         return writer.buffer.slice(0, writer.index)
     }
 }
@@ -1095,13 +1233,13 @@ export class SyncWriter extends PacketWriter {
         super(
             /* name */MESSAGE_NAME.Sync,
             /* code */MESSAGE_CODE.Sync,
-            /* length */1 + 4// code + length
+            /* length */0
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
@@ -1111,13 +1249,13 @@ export class TerminateWriter extends PacketWriter {
         super(
             /* name */MESSAGE_NAME.Terminate,
             /* code */MESSAGE_CODE.Terminate,
-            /* length */1 + 4// code + length
+            /* length */0
         )
     }
 
     write(writer: BufferWriter) {
-        writer.writeUint16(this.code)
-        writer.writeUint32(this.length)
+        // !!!call this last after all other packet build flows!!!
+        this.writeHeader(writer)
         return writer.buffer.slice(0, writer.index)
     }
 }
