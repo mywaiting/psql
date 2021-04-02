@@ -141,7 +141,7 @@ export class ObjectCursor extends Cursor {
 
 
 
-export type EncodedArg = null | string | Uint8Array
+export type EncodedParameter = null | string | Uint8Array
 
 
 
@@ -150,23 +150,27 @@ export type EncodedArg = null | string | Uint8Array
  */
 export interface ArrayQueryOptions {
     portal?: string, // postgres portal name, default is empty string
-    statement: string,
+    statement?: string, // postgres prepare statement name, default is empty string
+    query: string,
     parameters?: Array<unknown>,
-    converter?: (argument: unknown) => EncodedArg
+    parameterMapper?: (parameter: unknown) => EncodedParameter
 }
 
 export interface ObjectQueryOptions {
-    portal?: string,
-    statement: string,
+    portal?: string, // postgres portal name, default is empty string
+    statement?: string, // postgres prepare statement name, default is empty string
+    query: string,
     parameters?: Array<unknown>,
-    converter?: (argument: unknown) => EncodedArg,
-    fields?: string[]
+    parameterMapper?: (parameter: unknown) => EncodedParameter
+    fields?: string[] // special for object query
 }
 
 export class QueryOptions {
+    
     public portal: string
     public statement: string
-    public parameters?: EncodedArg[]
+    public query: string
+    public parameters?: EncodedParameter[]
     public fields?: string[]
 
     constructor(options: ObjectQueryOptions)
@@ -175,7 +179,7 @@ export class QueryOptions {
         let queryOptions: ArrayQueryOptions
         if (typeof overloadArg === 'string') {
             queryOptions = {
-                statement: overloadArg,
+                query: overloadArg,
                 parameters
             }
         } else {
@@ -197,13 +201,14 @@ export class QueryOptions {
             queryOptions = restOptions
         }
         this.portal = queryOptions.portal || ''
-        this.statement = queryOptions.statement
+        this.statement = queryOptions.statement || ''
+        this.query = queryOptions.query
         this.parameters = this.optionsParameters(queryOptions)
     }
 
-    private optionsParameters(options: ArrayQueryOptions): EncodedArg[] {
-        const converter = options.converter ? options.converter : new TypeWriter().encode
-        return (options.parameters || []).map(converter)
+    private optionsParameters(options: ArrayQueryOptions): EncodedParameter[] {
+        const parameterMapper = options.parameterMapper ? options.parameterMapper : new TypeWriter().encode
+        return (options.parameters || []).map(parameterMapper)
     }
     
 }
