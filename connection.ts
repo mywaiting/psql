@@ -8,6 +8,8 @@ import {
 import {
     MESSAGE_CODE,
     MESSAGE_NAME,
+    PARAMETER_FORMAT_CODE,
+    PORTAL_STATEMENT_TYPE,
     TRANSACTION_STATUS
 } from './const.ts'
 import {
@@ -43,6 +45,7 @@ import {
     EmptyQueryResponseReader,
     ErrorResponseReader,
     FunctionCallResponseReader,
+    NegotiateProtocolVersionReader,
     NoDataReader,
     NoticeResponseReader,
     NotificationResponseReader,
@@ -106,7 +109,7 @@ export interface ConnectionOptions {
  */
 export class Connection {
 
-    connectionState: ConnectionStatus = ConnectionStatus.Connecting
+    connectionStatus: ConnectionStatus = ConnectionStatus.Connecting
     transactionStatus?: TRANSACTION_STATUS
 
     // deno-lint-ignore no-explicit-any
@@ -151,31 +154,31 @@ export class Connection {
         // // deno-lint-ignore no-explicit-any
         // } as any)
 
-        // startup writer
-        this.writePacket(this.startup())
-        // authentication reader/writer
-        this.authenticate()
+        // startup
+        await this.writePacket(this.startup())
+        // authentication
+        await this.authenticate()
 
         // connection
         waiting:
         while (true) {
             const readPacket = await this.readPacket()
             // error
-            if (readPacket.name === MESSAGE_NAME.ErrorResponse) {
+            if (readPacket.packetName === MESSAGE_NAME.ErrorResponse) {
                 const {
                     errcode,
                     message
                 } = readPacket
                 throw new Error(`connect error occured: ${errcode} ${message}`)
-
-            } else if (readPacket.name === MESSAGE_NAME.BackendKeyData) {
+            // backendKeyData
+            } else if (readPacket.packetName === MESSAGE_NAME.BackendKeyData) {
                 Object.assign(this.serverInfo, {
                     processId: readPacket.processId,
                     secretKey: readPacket.secretKey
                 })
                 break
-            
-            } else if (readPacket.name === MESSAGE_NAME.ParameterStatus) {
+            // parameterStatue
+            } else if (readPacket.packetName === MESSAGE_NAME.ParameterStatus) {
                 const parameter = readPacket.parameter
                 const value = readPacket.value
                 // this.serverInfo.parameters.server_version = ''
@@ -187,33 +190,31 @@ export class Connection {
                     this.serverInfo!.parameters[parameter] = value
                 }
                 break
-
+            // readyForQuery
             } else if (readPacket.name === MESSAGE_NAME.ReadyForQuery) {
-                this.transactionStatus = String.fromCharCode(
-                    readPacket.status
-                ) as TransactionState
+                this.transactionStatus = readPacket.transactionStatus
                 // break label
                 break waiting
             }
 
-            this.connectionState = ConnectionStatus.Connected
+            this.connectionStatus = ConnectionStatus.Connected
         }
     }
 
     async close(): Promise<void> {
-        if (this.connectionState !== ConnectionStatus.Closed) {
+        if (this.connectionStatus !== ConnectionStatus.Closed) {
             // Terminate Message sended before closed
             const terminateWriter = new TerminateWriter()
             const terminateBuffer = new BufferWriter(new Uint8Array(5))
             await this.writePacket(terminateWriter.write(terminateBuffer))
             // socket closed
             this.conn!.close()
-            this.connectionState = ConnectionStatus.Closed
+            this.connectionStatus = ConnectionStatus.Closed
         }
     }
 
     async query(options: QueryOptions, type: QueryResultType): Promise<QueryResult> {
-        if (this.connectionState !== ConnectionStatus.Connected) {
+        if (this.connectionStatus !== ConnectionStatus.Connected) {
             throw new Error(`connection initial before execute`)
         }
         // acquire query lock
@@ -238,16 +239,23 @@ export class Connection {
     /**
      * client/server packet flows:
      * 
-     * 
+     * client           --->  query  --->          server
+     * client      <---  row description <---      server
+     * client          <---  data row <---         server
+     * client          <---  data row <---         server 
+     * client          <---  data row <---         server
+     * client      <---  command complete <---     server
+     * client      <---  ready for query  <---     server
      */
     private async simpleQuery(
         options: QueryOptions, 
         type: QueryResultType
     ): Promise<QueryResult> {
         // build query writer
-        const queryWriter = new QueryWriter(options.statement)
-        const queryBuffer = new BufferWriter(new Uint8Array(options.statement.length + 6))
+        const queryWriter = new QueryWriter(options.query)
+        const queryBuffer = new BufferWriter(new Uint8Array(options.query.length + 1))
         await this.writePacket(queryWriter.write(queryBuffer))
+
         // initial result
         let result: QueryResult
         switch (type) {
@@ -258,28 +266,29 @@ export class Connection {
                 result = new ObjectQueryResult(options)
                 break
         }
+
         // readPacket, when query startup, return once
         let readPacket = await this.readPacket()
-        if (readPacket.name === MESSAGE_NAME.RowDescription) {
+        if (readPacket.packetName === MESSAGE_NAME.RowDescription) {
             result.description = {
                 count: readPacket.count,
                 fields: readPacket.fields
             }
         
-        } else if (readPacket.name === MESSAGE_NAME.EmptyQueryResponse) {
+        } else if (readPacket.packetName === MESSAGE_NAME.EmptyQueryResponse) {
             // nothing done here
         
-        } else if (readPacket.name === MESSAGE_NAME.ErrorResponse) {
+        } else if (readPacket.packetName === MESSAGE_NAME.ErrorResponse) {
             const {
-                errcode,
+                code,
                 message
             } = readPacket
-            throw new Error(`query error occured: ${errcode} ${message}`)
+            throw new Error(`query error occured: ${code} ${message}`)
 
-        } else if (readPacket.name === MESSAGE_NAME.NoticeResponse) {
+        } else if (readPacket.packetName === MESSAGE_NAME.NoticeResponse) {
             result.warnings!.push(readPacket)
 
-        } else if (readPacket.name === MESSAGE_NAME.CommandComplete) {
+        } else if (readPacket.packetName === MESSAGE_NAME.CommandComplete) {
             const {
                 command,
                 count
@@ -294,13 +303,14 @@ export class Connection {
         } else {
             throw new Error(`unexpected query response: ${readPacket.code.toString(16)}`)
         }
+
         // loop for all rows data
         while (true) {
             readPacket = await this.readPacket()
-            if (readPacket.name === MESSAGE_NAME.DataRow) {
+            if (readPacket.packetName === MESSAGE_NAME.DataRow) {
                 result.insert(readPacket.fields)
 
-            } else if (readPacket.name === MESSAGE_NAME.CommandComplete) {
+            } else if (readPacket.packetName === MESSAGE_NAME.CommandComplete) {
                 const {
                     command,
                     count
@@ -312,24 +322,22 @@ export class Connection {
                     result.count = count
                 }
             
-            } else if (readPacket.name === MESSAGE_NAME.ReadyForQuery) {
-                this.transactionStatus = String.fromCharCode(
-                    readPacket.status
-                ) as TransactionState
+            } else if (readPacket.packetName === MESSAGE_NAME.ReadyForQuery) {
+                this.transactionStatus = readPacket.transactionStatus
                 // loop existed here for return
                 return result
 
-            } else if (readPacket.name === MESSAGE_NAME.ErrorResponse) {
+            } else if (readPacket.packetName === MESSAGE_NAME.ErrorResponse) {
                 const {
-                    errcode,
+                    code,
                     message
                 } = readPacket
-                throw new Error(`query error occured: ${errcode} ${message}`)
+                throw new Error(`query error occured: ${code} ${message}`)
     
-            } else if (readPacket.name === MESSAGE_NAME.NoticeResponse) {
+            } else if (readPacket.packetName === MESSAGE_NAME.NoticeResponse) {
                 result.warnings!.push(readPacket)
 
-            } else if (readPacket.name === MESSAGE_NAME.RowDescription) {
+            } else if (readPacket.packetName === MESSAGE_NAME.RowDescription) {
                 result.description = {
                     count: readPacket.count,
                     fields: readPacket.fields
@@ -341,47 +349,103 @@ export class Connection {
         }
     }
 
+    /**
+     * client/server packet flows:
+     * 
+     * client           --->  parse  --->          server
+     * client           --->  bind   --->          server
+     * client         --->  describe   --->        server
+     * client          --->  execute  --->         server
+     * client           --->  sync   --->          server
+     * 
+     * client          <---  parse ok <---         server
+     * client          <---  bind ok  <---         server
+     * client      <---  row description <---      server
+     * client          <---  data row <---         server
+     * client          <---  data row <---         server 
+     * client          <---  data row <---         server
+     * client      <---  command complete <---     server
+     * client      <---  ready for query  <---     server
+     */
     private async prepareQuery(
         options: QueryOptions, 
         type: QueryResultType
     ): Promise<QueryResult> {
         // build parse writer
-        const parseWriter = new ParseWriter(options.portal, options.statement)
-        const bufferLength = options.portal.length + 1 + 
-                            options.statement.length + 1 + 
-                            4 + 1
-        const parseBuffer = new BufferWriter(new Uint8Array(bufferLength))
-        await this.writePacket(parseWriter.write(parseBuffer))
-        // parse complete reader
-        const parseCompletePacket = await this.readPacket()
-        if (parseCompletePacket.name === MESSAGE_NAME.ParseComplete) {
-            // nothing done here
-        } else if (parseCompletePacket.name === MESSAGE_NAME.ErrorResponse) {
-            const {
-                errcode,
-                message
-            } = parseCompletePacket
-            throw new Error(`extendedQuery parsed error: ${errcode} ${message}`)
+        {
+            const parseWriter = new ParseWriter(options.statement, options.query)
+            const bufferLength = options.portal.length + 1 + 
+                                options.statement.length + 1 + 2
+            const parseBuffer = new BufferWriter(new Uint8Array(bufferLength))
+            await this.writePacket(parseWriter.write(parseBuffer))
+        }
+        // build bind writer
+        {
+            const bindWriter = new BindWriter(
+                options.portal, 
+                options.statement,
+                options.parameters
+            )
+            const bufferLength = 1024 // just a guess value
+            const bindBuffer = new BufferWriter(new Uint8Array(bufferLength))
+            await this.writePacket(bindWriter.write(bindBuffer))
+        }
+        // build describe writer
+        {
+            // TODO: portal ???
+            const describeWriter = new DescribeWriter(
+                PORTAL_STATEMENT_TYPE.PORTAL,
+                options.portal
+            )
+            const bufferLength = options.portal.length + 2
+            // TODO: statement ???
+            // const describeWriter = new DescribeWriter(
+            //     PORTAL_STATEMENT_TYPE.STATEMENT,
+            //     options.statement
+            // )
+            // const bufferLength = options.statement.length + 2
+            const describeBuffer = new BufferWriter(new Uint8Array(bufferLength))
+            await this.writePacket(describeWriter.write(describeBuffer))
+        }
+        // build execute writer
+        {
+            const executeWriter = new ExecuteWriter(
+                options.portal
+            )
+            const bufferLength = options.portal.length + 4
+            const executeBuffer = new BufferWriter(new Uint8Array(bufferLength))
+            await this.writePacket(executeWriter.write(executeBuffer))
+        }
+        // build sync writer
+        {
+            const syncWriter = new SyncWriter()
+            const syncBuffer = new BufferWriter(new Uint8Array())
+            await this.writePacket(syncWriter.write(syncBuffer))
         }
 
-        // build bind writer
-        const bindWriter = new BindWriter()
+        // parse complete reader
+        const parseCompletePacket = await this.readPacket()
+        if (parseCompletePacket.packetName === MESSAGE_NAME.ParseComplete) {
+            // nothing done here
+        } else if (parseCompletePacket.packetName === MESSAGE_NAME.ErrorResponse) {
+            const {
+                code,
+                message
+            } = parseCompletePacket
+            throw new Error(`extendedQuery parsed error: ${code} ${message}`)
+        }
+
         // bind complete reader
         const bindCompletePacket = await this.readPacket()
-        if (bindCompletePacket.name === MESSAGE_NAME.BindComplete) {
+        if (bindCompletePacket.packetName === MESSAGE_NAME.BindComplete) {
             // nothing done here
-        } else if (bindCompletePacket.name === MESSAGE_NAME.ErrorResponse) {
+        } else if (bindCompletePacket.packetName === MESSAGE_NAME.ErrorResponse) {
             const {
                 errcode,
                 message
             } = bindCompletePacket
             throw new Error(`extendedQuery parsed error: ${errcode} ${message}`)
         }
-
-
-        // build describe writer
-        // build execute writer
-        // build sync writer
 
         // initial result
         let result: QueryResult
@@ -393,25 +457,26 @@ export class Connection {
                 result = new ObjectQueryResult(options)
                 break
         }
+        
         // readPacket, when query startup, return once
         let readPacket = await this.readPacket()
-        if (readPacket.name === MESSAGE_NAME.RowDescription) {
+        if (readPacket.packetName === MESSAGE_NAME.RowDescription) {
             result.description = {
                 count: readPacket.count,
                 fields: readPacket.fields
             }
         
-        } else if (readPacket.name === MESSAGE_NAME.EmptyQueryResponse) {
+        } else if (readPacket.packetName === MESSAGE_NAME.EmptyQueryResponse) {
             // nothing done here
         
-        } else if (readPacket.name === MESSAGE_NAME.ErrorResponse) {
+        } else if (readPacket.packetName === MESSAGE_NAME.ErrorResponse) {
             const {
-                errcode,
+                code,
                 message
             } = readPacket
-            throw new Error(`query error occured: ${errcode} ${message}`)
+            throw new Error(`query error occured: ${code} ${message}`)
 
-        } else if (readPacket.name === MESSAGE_NAME.NoticeResponse) {
+        } else if (readPacket.packetName === MESSAGE_NAME.NoticeResponse) {
             result.warnings!.push(readPacket)
 
         } else {
@@ -421,10 +486,10 @@ export class Connection {
         // loop for all rows data
         while (true) {
             readPacket = await this.readPacket()
-            if (readPacket.name === MESSAGE_NAME.DataRow) {
+            if (readPacket.packetName === MESSAGE_NAME.DataRow) {
                 result.insert(readPacket.fields)
 
-            } else if (readPacket.name === MESSAGE_NAME.CommandComplete) {
+            } else if (readPacket.packetName === MESSAGE_NAME.CommandComplete) {
                 const {
                     command,
                     count
@@ -436,31 +501,29 @@ export class Connection {
                     result.count = count
                 }
             
-            } else if (readPacket.name === MESSAGE_NAME.ReadyForQuery) {
-                this.transactionStatus = String.fromCharCode(
-                    readPacket.status
-                ) as TransactionState
+            } else if (readPacket.packetName === MESSAGE_NAME.ReadyForQuery) {
+                this.transactionStatus = readPacket.transactionStatus
                 // loop existed here for return
                 return result
 
-            } else if (readPacket.name === MESSAGE_NAME.ErrorResponse) {
+            } else if (readPacket.packetName === MESSAGE_NAME.ErrorResponse) {
                 const {
-                    errcode,
+                    code,
                     message
                 } = readPacket
-                throw new Error(`query error occured: ${errcode} ${message}`)
+                throw new Error(`query error occured: ${code} ${message}`)
     
-            } else if (readPacket.name === MESSAGE_NAME.NoticeResponse) {
+            } else if (readPacket.packetName === MESSAGE_NAME.NoticeResponse) {
                 result.warnings!.push(readPacket)
 
-            } else if (readPacket.name === MESSAGE_NAME.RowDescription) {
+            } else if (readPacket.packetName === MESSAGE_NAME.RowDescription) {
                 result.description = {
                     count: readPacket.count,
                     fields: readPacket.fields
                 }
 
             } else {
-                throw new Error(`unexpected query response: ${readPacket.code.toString(16)}`)
+                throw new Error(`unexpected query response: ${readPacket.packetCode.toString(16)}`)
             }
         }
 
@@ -469,24 +532,23 @@ export class Connection {
     private startup(): Uint8Array {
         const {
             user,
-            dbname,
+            database,
             applicationName
         } = this.options
 
-        const clientEncoding = 'utf-8' // always utf-8
-        const startupWriter = new StartupWriter({
-            version: '3.0',
-            user: user,
-            dbname: dbname,
-            applicationName: applicationName,
-            clientEncoding: clientEncoding
-        })
+        const clientEncoding = 'utf-8'
+        const startupWriter = new StartupWriter(
+            /* user */user,
+            /* database */database,
+            /* applicationName */applicationName,
+            /* clientEncoding */clientEncoding
+        )
 
-        const bufferLength = 2 + 2 + 
+        const bufferLength = 4 + 4 
                     user.length + 1 +
-                    dbname.length + 1 + 
-                    applicationName.length + 1
-                    clientEncoding.length + 1
+                    database.length + 1 + 
+                    applicationName.length + 1 +
+                    clientEncoding.length + 1 + 2
         const startupBuffer = new BufferWriter(new Uint8Array(bufferLength))
 
         return startupWriter.write(startupBuffer)
@@ -501,29 +563,30 @@ export class Connection {
         const authPacket = await this.readPacket()
 
         // ok
-        if (authPacket.name === MESSAGE_NAME.AuthenticationOk) {
+        if (authPacket.packetName === MESSAGE_NAME.AuthenticationOk) {
             return true
 
         // clearText
-        } else if (authPacket.name === MESSAGE_NAME.AuthenticationCleartextPassword) {
+        } else if (authPacket.packetName === MESSAGE_NAME.AuthenticationCleartextPassword) {
             // build password writer
             const passwordMessageWriter = new PasswordMessageWriter(password)
             const passwordMessageBuffer = new BufferWriter(new Uint8Array(password.length + 6))
             await this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
+
             // password response
             const resultPacket = await this.readPacket()
-            if (resultPacket.name === MESSAGE_NAME.AuthenticationOk) {
+            if (resultPacket.packetName === MESSAGE_NAME.AuthenticationOk) {
                 return true
             
-            } else if (resultPacket.name === MESSAGE_NAME.ErrorResponse) {
+            } else if (resultPacket.packetName === MESSAGE_NAME.ErrorResponse) {
                 // TODO: AuthenticationError()
                 throw new Error(`authenticate error: ${resultPacket.message}`)
             } else {
-                throw new Error(`authenticate unexpected error: ${resultPacket.code.toString(16)}`)
+                throw new Error(`authenticate unexpected error: ${resultPacket.packetCode.toString(16)}`)
             }
         
         // md5
-        } else if (authPacket.name === MESSAGE_NAME.AuthenticationMD5Password) {
+        } else if (authPacket.packetName === MESSAGE_NAME.AuthenticationMD5Password) {
             // make md5 password
             const hashword = postgresMd5Hashword(user, password, authPacket.salt)
             // build password writer
@@ -532,50 +595,50 @@ export class Connection {
             await this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
             // password response
             const resultPacket = await this.readPacket()
-            if (resultPacket.name === MESSAGE_NAME.AuthenticationOk) {
+            if (resultPacket.packetName === MESSAGE_NAME.AuthenticationOk) {
                 return true
             
-            } else if (resultPacket.name === MESSAGE_NAME.ErrorResponse) {
+            } else if (resultPacket.packetName === MESSAGE_NAME.ErrorResponse) {
                 // TODO: AuthenticationError()
                 throw new Error(`authenticate error: ${resultPacket.message}`)
             } else {
-                throw new Error(`authenticate unexpected error: ${resultPacket.code.toString(16)}`)
+                throw new Error(`authenticate unexpected error: ${resultPacket.packetCode.toString(16)}`)
             }
         
         // other not supported
         } else {
-            throw new Error(`authenticate not supported: ${authPacket.code.toString(16)}`)
+            throw new Error(`authenticate not supported: ${authPacket.packetCode.toString(16)}`)
         }
     }
 
     private async readPacket() {
         // read and parse packet from deno.conn
         try {
-            const headReader = new BufferReader(new Uint8Array(5)) // 1 byte + 4 byte
+            const headerReader = new BufferReader(new Uint8Array(5)) // 1 byte + 4 byte
             // fulfill packet head
-            await this.conn!.read(headReader.buffer)
-            const code = headReader.readUint16() as MESSAGE_CODE // 1 byte
-            const length = headReader.readUint32() // 4 byte, Uint32BE
+            await this.conn!.read(headerReader.buffer)
+            const packetCode = headerReader.readUint8() as MESSAGE_CODE // 1 byte
+            const packetLength = headerReader.readInt32() // 4 byte, Uint32BE
 
-            const bodyReader = new BufferReader(new Uint8Array(length))
+            const bodyReader = new BufferReader(new Uint8Array(packetLength))
             // fulfill packet body
             await this.conn!.read(bodyReader.buffer)
 
-            switch(code) {
+            switch(packetCode) {
                 // AuthenticationReader will rename it's name by read()
                 // all auth packet will return here
                 case MESSAGE_CODE.AuthenticationOk:
                     return new AuthenticationReader(
                         /* name */MESSAGE_NAME.AuthenticationOk,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.BackendKeyData:
                     return new BackendKeyDataReader(
                         /* name */MESSAGE_NAME.BackendKeyData,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
 
                 case MESSAGE_CODE.BindComplete:
@@ -587,15 +650,15 @@ export class Connection {
                 case MESSAGE_CODE.CommandComplete:
                     return new CommandCompleteReader(
                         /* name */MESSAGE_NAME.CommandComplete,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
 
                 case MESSAGE_CODE.CopyData:
                     return new CopyDataReader(
                         /* name */MESSAGE_NAME.CopyData,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.CopyDone:
@@ -604,29 +667,29 @@ export class Connection {
                 case MESSAGE_CODE.CopyInResponse:
                     return new CopyInResponseReader(
                         /* name */MESSAGE_NAME.CopyInResponse,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.CopyOutResponse:
                     return new CopyOutResponseReader(
                         /* name */MESSAGE_NAME.CopyOutResponse,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.CopyBothResponse:
                     return new CopyBothResponseReader(
                         /* name */MESSAGE_NAME.CopyBothResponse,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.DataRow:
                     return new DataRowReader(
                         /* name */MESSAGE_NAME.DataRow,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.EmptyQueryResponse:
@@ -635,15 +698,22 @@ export class Connection {
                 case MESSAGE_CODE.ErrorResponse:
                     return new ErrorResponseReader(
                         /* name */MESSAGE_NAME.ErrorResponse,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.FunctionCallResponse:
                     return new FunctionCallResponseReader(
                         /* name */MESSAGE_NAME.FunctionCallResponse,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
+                    ).read(bodyReader)
+                
+                case MESSAGE_CODE.NegotiateProtocolVersion:
+                    return new NegotiateProtocolVersionReader(
+                        /* name */MESSAGE_NAME.NegotiateProtocolVersion,
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.NoData:
@@ -652,29 +722,29 @@ export class Connection {
                 case MESSAGE_CODE.NoticeResponse:
                     return new NoticeResponseReader(
                         /* name */MESSAGE_NAME.NoticeResponse,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.NotificationResponse:
                     return new NotificationResponseReader(
                         /* name */MESSAGE_NAME.NotificationResponse,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.ParameterDescription:
                     return new ParameterDescriptionReader(
                         /* name */MESSAGE_NAME.ParameterDescription,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.ParameterStatus:
                     return new ParameterStatusReader(
                         /* name */MESSAGE_NAME.ParameterStatus,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.ParseComplete:
@@ -686,20 +756,20 @@ export class Connection {
                 case MESSAGE_CODE.ReadyForQuery:
                     return new ReadyForQueryReader(
                         /* name */MESSAGE_NAME.ReadyForQuery,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 case MESSAGE_CODE.RowDescription:
                     return new RowDescriptionReader(
                         /* name */MESSAGE_NAME.RowDescription,
-                        /* code */code,
-                        /* length */length
+                        /* code */packetCode,
+                        /* length */packetLength
                     ).read(bodyReader)
                 
                 // here will never throw, but we need this for recover everything
                 default:
-                    throw new Error(`unknown message code: ${code.toString(16)}`)
+                    throw new Error(`unknown message code: ${packetCode.toString(16)}`)
             }
 
         } catch (error) {
@@ -735,13 +805,11 @@ export class Connection {
  */
 function postgresMd5Hashword(user: string, password: string, salt: Uint8Array): string {
     // md5(concat(password, username))
-    const hash1 = createHash('md5').update(encode(password + user))
-    // concat(md5(concat(password, username)), random-salt)
-    const buff2 = new Uint8Array(hash1.length + salt.length)
-    buff2.set(hash1)
-    buff2.set(salt, hash1.length)
-    // md5(concat(md5(concat(password, username)), random-salt))
-    const hash2 = createHash('md5').update(buff2)
-    // concat('md5', md5(concat(md5(concat(password, username)), random-salt)))
-    return ['md5', hash2.toString('hex')].join('')
+    const hash1 = createHash('md5').update(encode(password + user)).toString('hex')
+    const buff1 = encode(hash1)
+    const buff2 = new Uint8Array(buff1.length + salt.length)
+    buff2.set(buff1)
+    buff2.set(salt, buff1.length)
+    const hash2 = createHash('md5').update(buff2).toString('hex')
+    return ['md5', hash2].join('')
 }

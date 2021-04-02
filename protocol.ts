@@ -71,12 +71,6 @@ export class PacketReader {
     read(reader: BufferReader) {
         throw new Error('not implemented')
     }
-    
-    // call this first before all other handle flows
-    readHeader(reader: BufferReader) {
-        this.packetCode = reader.readUint8() as MESSAGE_CODE // Byte1()
-        this.packetLength = reader.readInt32()               // Int32()
-    }
 }
 
 export class AuthenticationReader extends PacketReader {
@@ -87,10 +81,6 @@ export class AuthenticationReader extends PacketReader {
         packetLength: number
     // deno-lint-ignore no-explicit-any
     } & any => {
-        // default is authentication ok packet
-        this.packetName = MESSAGE_NAME.AuthenticationOk
-        this.readHeader(reader)
-
         // read authentication code for authenticate message
         const code = reader.readInt32() as AUTHENTICATION_CODE
 
@@ -204,9 +194,6 @@ export class AuthenticationReader extends PacketReader {
 export class BackendKeyDataReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.BackendKeyData
-        this.readHeader(reader)
-
         const processId = reader.readInt32()
         const secretKey = reader.readInt32()
         return {
@@ -253,9 +240,6 @@ export class CommandCompleteReader extends PacketReader {
      * For a COPY command, the tag is COPY rows where rows is the number of rows copied. (Note: the row count appears only in PostgreSQL 8.2 and later.)
      */
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.CommandComplete
-        this.readHeader(reader)
-
         const commandTag = reader.readSlice(0x00)
         const metches = COMMAND_TAG_REGEXP.exec(commandTag)
         if (metches) {
@@ -284,9 +268,6 @@ export class CommandCompleteReader extends PacketReader {
 export class CopyDataReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.CopyData
-        this.readHeader(reader)
-
         // except Int32(packetLength) + Int32(AUTHENTICATION_CODE) = 8
         const data: Uint8Array = reader.read(this.packetLength - 8)
         return {
@@ -310,9 +291,6 @@ export class CopyDoneReader extends PacketReader {
 export class CopyInResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.CopyInResponse
-        this.readHeader(reader)
-
         const format = reader.readInt8() as PARAMETER_FORMAT_CODE // 0x00 = 'text', 0x01 = 'binary'
         const count = reader.readInt16() // columns count
         const codes: PARAMETER_FORMAT_CODE[] = [] // the format codes to be used for each column
@@ -333,9 +311,6 @@ export class CopyInResponseReader extends PacketReader {
 export class CopyOutResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.CopyOutResponse
-        this.readHeader(reader)
-
         const format = reader.readInt8() as PARAMETER_FORMAT_CODE // 0x00 = 'text', 0x01 = 'binary'
         const count = reader.readInt16() // columns count
         const codes: PARAMETER_FORMAT_CODE[] = [] // the format codes to be used for each column
@@ -356,9 +331,6 @@ export class CopyOutResponseReader extends PacketReader {
 export class CopyBothResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.CopyBothResponse
-        this.readHeader(reader)
-
         const format = reader.readInt8() as PARAMETER_FORMAT_CODE // 0x00 = 'text', 0x01 = 'binary'
         const count = reader.readInt16() // columns count
         const codes: PARAMETER_FORMAT_CODE[] = [] // the format codes to be used for each column
@@ -379,9 +351,6 @@ export class CopyBothResponseReader extends PacketReader {
 export class DataRowReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.DataRow
-        this.readHeader(reader)
-
         const count = reader.readInt16() // fields count
         const fields: (Uint8Array | null)[] = new Array(count)
 
@@ -411,9 +380,6 @@ export class EmptyQueryResponseReader extends PacketReader {
 export class ErrorResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.ErrorResponse
-        this.readHeader(reader)
-
         const data: Record<string, string> = {}
         let name = reader.readString(1)
         while (name !== '\0') {
@@ -449,9 +415,6 @@ export class ErrorResponseReader extends PacketReader {
 export class FunctionCallResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.FunctionCallResponse
-        this.readHeader(reader)
-
         /**
          * the length of the function result value, in bytes (this count does not include itself). 
          * can be zero. as a special case, -1 indicates a NULL function result. 
@@ -472,9 +435,6 @@ export class FunctionCallResponseReader extends PacketReader {
 export class NegotiateProtocolVersionReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.NegotiateProtocolVersion
-        this.readHeader(reader)
-
         // Newest minor protocol version supported by the server for 
         // the major protocol version requested by the client
         const newestVersion = reader.readInt32()
@@ -507,9 +467,6 @@ export class NoDataReader extends PacketReader {
 export class NoticeResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.NoticeResponse
-        this.readHeader(reader)
-
         const data: Record<string, string> = {}
         let name = reader.readString(1)
         while (name !== '\0') {
@@ -545,9 +502,6 @@ export class NoticeResponseReader extends PacketReader {
 export class NotificationResponseReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.NotificationResponse
-        this.readHeader(reader)
-
         const processId = reader.readInt32()
         // the name of the channel that the notify has been raised on
         const channel = reader.readSlice(0x00)
@@ -567,9 +521,6 @@ export class NotificationResponseReader extends PacketReader {
 export class ParameterDescriptionReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.ParameterDescription
-        this.readHeader(reader)
-
         // the number of parameters used by the statement (can be zero)
         const count = reader.readInt16()
         // specifies the object ID of the parameter data type
@@ -590,9 +541,6 @@ export class ParameterDescriptionReader extends PacketReader {
 export class ParameterStatusReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.ParameterStatus
-        this.readHeader(reader)
-
         // the name of the run-time parameter being reported.
         const name = reader.readSlice(0x00)
         // the current value of the parameter.
@@ -628,9 +576,6 @@ export class PortalSuspendedReader extends PacketReader {
 export class ReadyForQueryReader extends PacketReader {
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.ReadyForQuery
-        this.readHeader(reader)
-
         /** 
          * current backend transaction status indicator. Possible values are: 
          * 0x49 = 73 = 'I' if idle (not in a transaction block); 
@@ -669,9 +614,6 @@ export class RowDescriptionReader extends PacketReader {
     }
 
     read(reader: BufferReader) {
-        this.packetName = MESSAGE_NAME.RowDescription
-        this.readHeader(reader)
-
         // specifies the number of fields in a row (can be zero)
         const count = reader.readInt16()
         const fields = new Array(count)
@@ -691,7 +633,7 @@ export class RowDescriptionReader extends PacketReader {
 
 
 // 
-// packet reader
+// packet writer
 // 
 
 
