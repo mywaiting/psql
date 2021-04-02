@@ -8,6 +8,7 @@ import {
 import {
     MESSAGE_CODE,
     MESSAGE_NAME,
+    TRANSACTION_STATUS
 } from './const.ts'
 import {
     BufferReader,
@@ -79,24 +80,13 @@ import {
 
 
 
-export enum ConnectionState {
+export enum ConnectionStatus {
     Connecting,
     Connected,
     Closing,
     Closed,
 }
 
-/** 
- * current backend transaction status indicator. Possible values are: 
- * 0x49 = 73 = 'I' if idle (not in a transaction block); 
- * 0x54 = 84 = 'T' if in a transaction block; 
- * 0x45 = 69 = 'E' if in a failed transaction block (queries will be rejected until block is ended)
- */
-export enum TransactionState {
-    Idle = 0x49,
-    IdleInTransaction = 0x54,
-    InFailedTransaction = 0x45,
-}
 
 export interface ConnectionOptions {
     host: string,
@@ -116,8 +106,8 @@ export interface ConnectionOptions {
  */
 export class Connection {
 
-    connectionState: ConnectionState = ConnectionState.Connecting
-    transactionState?: TransactionState
+    connectionState: ConnectionStatus = ConnectionStatus.Connecting
+    transactionStatus?: TRANSACTION_STATUS
 
     // deno-lint-ignore no-explicit-any
     serverInfo?: Record<string, any> = {} // for server parameters/status
@@ -199,31 +189,31 @@ export class Connection {
                 break
 
             } else if (readPacket.name === MESSAGE_NAME.ReadyForQuery) {
-                this.transactionState = String.fromCharCode(
+                this.transactionStatus = String.fromCharCode(
                     readPacket.status
                 ) as TransactionState
                 // break label
                 break waiting
             }
 
-            this.connectionState = ConnectionState.Connected
+            this.connectionState = ConnectionStatus.Connected
         }
     }
 
     async close(): Promise<void> {
-        if (this.connectionState !== ConnectionState.Closed) {
+        if (this.connectionState !== ConnectionStatus.Closed) {
             // Terminate Message sended before closed
             const terminateWriter = new TerminateWriter()
             const terminateBuffer = new BufferWriter(new Uint8Array(5))
             await this.writePacket(terminateWriter.write(terminateBuffer))
             // socket closed
             this.conn!.close()
-            this.connectionState = ConnectionState.Closed
+            this.connectionState = ConnectionStatus.Closed
         }
     }
 
     async query(options: QueryOptions, type: QueryResultType): Promise<QueryResult> {
-        if (this.connectionState !== ConnectionState.Connected) {
+        if (this.connectionState !== ConnectionStatus.Connected) {
             throw new Error(`connection initial before execute`)
         }
         // acquire query lock
@@ -323,7 +313,7 @@ export class Connection {
                 }
             
             } else if (readPacket.name === MESSAGE_NAME.ReadyForQuery) {
-                this.transactionState = String.fromCharCode(
+                this.transactionStatus = String.fromCharCode(
                     readPacket.status
                 ) as TransactionState
                 // loop existed here for return
@@ -447,7 +437,7 @@ export class Connection {
                 }
             
             } else if (readPacket.name === MESSAGE_NAME.ReadyForQuery) {
-                this.transactionState = String.fromCharCode(
+                this.transactionStatus = String.fromCharCode(
                     readPacket.status
                 ) as TransactionState
                 // loop existed here for return

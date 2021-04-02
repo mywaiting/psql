@@ -540,6 +540,30 @@ export const enum OID_TYPE_NAME {
  * 0x01 = 'binary', binary mode
  */
 export const enum PARAMETER_FORMAT_CODE {
-    'TEXT' = 0x00,
-    'BINARY' = 0x01,
+    TEXT = 0x00,
+    BINARY = 0x01,
+}
+
+
+/**
+ * portal or statement
+ * 'P' = portal;
+ * 'S' = prepared statement; 
+ */
+export const enum PORTAL_STATEMENT_TYPE {
+    PORTAL    = 0x50, // 'P'
+    STATEMENT = 0x53, // 'S'
+}
+
+
+/** 
+ * current backend transaction status indicator. Possible values are: 
+ * 0x49 = 73 = 'I' if idle (not in a transaction block); 
+ * 0x54 = 84 = 'T' if in a transaction block; 
+ * 0x45 = 69 = 'E' if in a failed transaction block (queries will be rejected until block is ended)
+ */
+export const enum TRANSACTION_STATUS {
+    Idle                = 0x49,
+    IdleInTransaction   = 0x54,
+    InFailedTransaction = 0x45,
 }
