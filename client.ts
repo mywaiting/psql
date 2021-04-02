@@ -20,7 +20,7 @@ import {
 export interface ClientOptions {
     host?: string,
     port?: string | number, // 5432
-    dbname?: string,
+    database?: string,
     user?: string,
     password?: string,
     options?: Record<string, string>,
@@ -62,7 +62,7 @@ export class ClientOptionsReader {
         return {
             host: options.host ?? pqEnv.host ?? '127.0.0.1',
             port: parseInt(port),
-            dbname: options.dbname ?? pqEnv.dbname ?? '',
+            database: options.database ?? pqEnv.database ?? '',
             user: options.user ?? pqEnv.user ?? '',
             password: options.password ?? pqEnv.password,
             options: options.options ?? pqEnv.options,
@@ -71,7 +71,7 @@ export class ClientOptionsReader {
     }
 
     /**
-     * dsn: postgresql://[user[:password]@][host][:port][,...][/dbname][?param1=value1&...]
+     * dsn: postgresql://[user[:password]@][host][:port][,...][/database][?param1=value1&...]
      * https://www.postgresql.org/docs/13/libpq-connect.html#LIBPQ-CONNSTRING
      */
     pqDSN(dsn: string): ClientOptions {
@@ -89,7 +89,7 @@ export class ClientOptionsReader {
             // driver: protocol,
             host: url.hostname,
             port: url.port,
-            dbname: url.pathname.slice(1), // remove leading slash from path
+            database: url.pathname.slice(1), // remove leading slash from path
             user: url.username,
             password: url.password,
             options: options,
@@ -114,7 +114,7 @@ export class ClientOptionsReader {
             // driver: 'postgresql',
             host: Deno.env.get("PGHOST"),
             port: Deno.env.get("PGPORT"),
-            dbname: Deno.env.get("PGDATABASE"),
+            database: Deno.env.get("PGDATABASE"),
             user: Deno.env.get("PGUSER"),
             password: Deno.env.get("PGPASSWORD"),
             options: options,

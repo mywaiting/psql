@@ -91,7 +91,7 @@ export enum ConnectionStatus {
 export interface ConnectionOptions {
     host: string,
     port: number,
-    dbname: string,
+    database: string,
     user: string,
     password?: string,
     options?: Record<string, string>,
