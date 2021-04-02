@@ -155,20 +155,33 @@ export class BufferWriter {
 
     index = 0
 
-    get length(): number {
-        return this.index
+    constructor(public buffer: Uint8Array) {
+        // first 5 bytes prepare for packet header
+        this.enlarge(this.buffer.length + 5)
+        this.index += 5
     }
 
-    get capacity(): number {
-        return this.buffer.length - this.index
+    /**
+     * enlarge current buffer with more length
+     */
+    enlarge(length: number): BufferWriter {
+        const remainLength = this.buffer.length - this.index
+        if (remainLength < length) {
+            const buffer = this.buffer
+            // enlarge factor ~= 1.5 
+            // https://stackoverflow.com/questions/2269063/buffer-growth-strategy
+            const newestLength = buffer.length + (buffer.length >> 1) + length
+            this.buffer = new Uint8Array(newestLength)
+            // copy current buffer to this.buffer from zero
+            // enlarge with more length
+            this.buffer.set(buffer, 0)
+        }
+        return this
     }
-
-    constructor(readonly buffer: Uint8Array) {}
 
     write(buffer: Uint8Array): BufferWriter {
-        if (buffer.length > this.capacity) {
-            buffer = buffer.slice(0, this.capacity)
-        }
+        this.enlarge(buffer.length)
+        // copy buffer to this.buffer start in this.index
         this.buffer.set(buffer, this.index)
         this.index += buffer.length
         return this
@@ -176,23 +189,29 @@ export class BufferWriter {
 
     writeString(string: string): BufferWriter {
         const buffer = encode(string)
+        // buffer.byteLength === buffer.length without offset
+        this.enlarge(buffer.length)
+        // copy buffer to this.buffer start in this.index
         this.buffer.set(buffer, this.index)
         this.index += buffer.length
         return this
     }
 
     writeInt8(digit: number): BufferWriter {
+        this.enlarge(1)
         this.buffer[this.index++] = (digit >>> 0) & 0xff
         return this
     }
 
     writeInt16(digit: number): BufferWriter {
+        this.enlarge(2)
         this.buffer[this.index++] = (digit >>> 8) & 0xff
         this.buffer[this.index++] = (digit >>> 0) & 0xff
         return this
     }
 
     writeInt32(digit: number): BufferWriter {
+        this.enlarge(4)
         this.buffer[this.index++] = (digit >>> 24) & 0xff
         this.buffer[this.index++] = (digit >>> 16) & 0xff
         this.buffer[this.index++] = (digit >>> 8) & 0xff
@@ -201,17 +220,20 @@ export class BufferWriter {
     }
 
     writeUint8(digit: number): BufferWriter {
+        this.enlarge(1)
         this.buffer[this.index++] = (digit >> 0) & 0xff
         return this
     }
 
     writeUint16(digit: number): BufferWriter {
+        this.enlarge(2)
         this.buffer[this.index++] = (digit >> 0) & 0xff
         this.buffer[this.index++] = (digit >> 8) & 0xff
         return this
     }
 
     writeUint32(digit: number): BufferWriter {
+        this.enlarge(4)
         this.buffer[this.index++] = (digit >> 0) & 0xff
         this.buffer[this.index++] = (digit >> 8) & 0xff
         this.buffer[this.index++] = (digit >> 16) & 0xff
