@@ -24,13 +24,13 @@ import {
 } from './types.ts'
 
 
-const DEBUG = false
+const DEBUG = true
 
 /**
  * be careful pass reader: BuffferReader
  * please used BufReader.copy() before pass reader!
  */
-function dumpPacket(reader: BufferReader) {
+export function dumpPacket(reader: BufferReader) {
     function printable(digit: number): string {
         if (32 <= digit && digit < 127) {
             return String.fromCharCode(digit)
@@ -48,7 +48,7 @@ function dumpPacket(reader: BufferReader) {
             if (current === 7) printUints.push('  ')
             printTexts += printable(int)
         }
-        console.log(printUints.join(' '), '    ', printTexts)
+        console.log(printUints.join(' ') + '    ' + printTexts)
         printUints = [], printTexts = ''
     }
 }
@@ -656,16 +656,20 @@ export class PacketWriter {
      * so here just except BYTE1(packetCode) + Int32(packetLength) = 5
      */
     writeHeader(writer: BufferWriter) {
-        const bufferLength = writer.index
-        this.packetLength = bufferLength + 4
-        // enlarge 5 bytes for packet header and reset current writer's index
-        writer.enlarge(bufferLength + 5)
+        // restore current body buffer
+        const bodyLength = writer.index
+        const bodyBuffer = writer.buffer.slice(0, bodyLength)
+        // packetLength
+        this.packetLength = bodyLength + 4
+        // rebuild the packet
+        writer.enlarge(5)
         writer.index = 0
         // set BYTE1(packetCode) + Int32(packetLength) = 5
         writer.writeUint8(this.packetCode)   // Byte1() = 1 byte
         writer.writeInt32(this.packetLength) // Int32() = 4 byte
-        // recover current writer's index as buffer.length
-        writer.index = bufferLength + 5
+        // rewrite body buffer
+        writer.write(bodyBuffer)
+        writer.index = bodyLength + 5
     }
 }
 
@@ -1144,7 +1148,8 @@ export class StartupWriter {
          * the most significant 16 bits are the major version number (3 for the protocol described here). 
          * the least significant 16 bits are the minor version number (0 for the protocol described here).
          */
-        writer.writeInt16(0x03).writeInt16(0x00)
+        // writer.writeInt16(0x03).writeInt16(0x00)
+        writer.writeInt32(196608)
         // user
         writer.writeString('user').writeUint8(0x00)
         writer.writeString(this.user).writeUint8(0x00)
@@ -1165,6 +1170,8 @@ export class StartupWriter {
         writer.index = 0
         writer.writeInt32(this.packetLength)
         writer.index = this.packetLength
+
+        // if (DEBUG) dumpPacket(new BufferReader(writer.buffer.slice(0, writer.index)))
 
         return writer.buffer.slice(0, writer.index)
     }
