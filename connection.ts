@@ -166,10 +166,11 @@ export class Connection {
             // error
             if (readPacket.packetName === MESSAGE_NAME.ErrorResponse) {
                 const {
-                    errcode,
+                    code,
                     message
                 } = readPacket
-                throw new Error(`connect error occured: ${errcode} ${message}`)
+                throw new Error(`connect error occured: ${code} ${message}`)
+
             // backendKeyData
             } else if (readPacket.packetName === MESSAGE_NAME.BackendKeyData) {
                 Object.assign(this.serverInfo, {
@@ -177,6 +178,7 @@ export class Connection {
                     secretKey: readPacket.secretKey
                 })
                 break
+
             // parameterStatue
             } else if (readPacket.packetName === MESSAGE_NAME.ParameterStatus) {
                 const parameter = readPacket.parameter
@@ -190,8 +192,9 @@ export class Connection {
                     this.serverInfo!.parameters[parameter] = value
                 }
                 break
+
             // readyForQuery
-            } else if (readPacket.name === MESSAGE_NAME.ReadyForQuery) {
+            } else if (readPacket.packetName === MESSAGE_NAME.ReadyForQuery) {
                 this.transactionStatus = readPacket.transactionStatus
                 // break label
                 break waiting
@@ -301,7 +304,7 @@ export class Connection {
             }
 
         } else {
-            throw new Error(`unexpected query response: ${readPacket.code.toString(16)}`)
+            throw new Error(`unexpected query response: ${readPacket.packetCode.toString(16)}`)
         }
 
         // loop for all rows data
@@ -344,7 +347,7 @@ export class Connection {
                 }
 
             } else {
-                throw new Error(`unexpected query response: ${readPacket.code.toString(16)}`)
+                throw new Error(`unexpected query response: ${readPacket.packetCode.toString(16)}`)
             }
         }
     }
@@ -392,13 +395,16 @@ export class Connection {
         }
         // build describe writer
         {
-            // TODO: portal ???
             const describeWriter = new DescribeWriter(
                 PORTAL_STATEMENT_TYPE.PORTAL,
                 options.portal
             )
             const bufferLength = options.portal.length + 2
-            // TODO: statement ???
+            /**
+             * here can fetch statement parameters description.
+             * but not use this regularly.
+             * because postgres prepare query use portal but not statement
+             */
             // const describeWriter = new DescribeWriter(
             //     PORTAL_STATEMENT_TYPE.STATEMENT,
             //     options.statement
@@ -441,10 +447,10 @@ export class Connection {
             // nothing done here
         } else if (bindCompletePacket.packetName === MESSAGE_NAME.ErrorResponse) {
             const {
-                errcode,
+                code,
                 message
             } = bindCompletePacket
-            throw new Error(`extendedQuery parsed error: ${errcode} ${message}`)
+            throw new Error(`extendedQuery parsed error: ${code} ${message}`)
         }
 
         // initial result
@@ -480,7 +486,7 @@ export class Connection {
             result.warnings!.push(readPacket)
 
         } else {
-            throw new Error(`unexpected query response: ${readPacket.code.toString(16)}`)
+            throw new Error(`unexpected query response: ${readPacket.packetCode.toString(16)}`)
         }
 
         // loop for all rows data
@@ -562,8 +568,16 @@ export class Connection {
 
         const authPacket = await this.readPacket()
 
+        // error
+        if (authPacket.packetName === MESSAGE_NAME.ErrorResponse) {
+            const {
+                code,
+                message
+            } = authPacket
+            throw new Error(`authenticate error occured: ${code} ${message}`)
+
         // ok
-        if (authPacket.packetName === MESSAGE_NAME.AuthenticationOk) {
+        } else if (authPacket.packetName === MESSAGE_NAME.AuthenticationOk) {
             return true
 
         // clearText
@@ -604,6 +618,13 @@ export class Connection {
             } else {
                 throw new Error(`authenticate unexpected error: ${resultPacket.packetCode.toString(16)}`)
             }
+
+        // negotiateProtocolVersion
+        } else if (authPacket.packetName === MESSAGE_NAME.NegotiateProtocolVersion) {
+            throw new Error(`server and client with 
+                negotiate protocol version: ${authPacket.newestVersion}
+                negotiate protocol options: ${authPacket.options}
+            `)
         
         // other not supported
         } else {
