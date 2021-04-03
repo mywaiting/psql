@@ -8,7 +8,6 @@ import {
 import {
     MESSAGE_CODE,
     MESSAGE_NAME,
-    PARAMETER_FORMAT_CODE,
     PORTAL_STATEMENT_TYPE,
     TRANSACTION_STATUS
 } from './const.ts'
@@ -127,9 +126,10 @@ export class Connection {
     /**
      * client/server packet flows:
      * 
+     * client       --->  ssl request  --->         server (optional)
      * client         --->  startup  --->           server
-     * client  <---  auth request | auth ok <---    server
-     * client ---> (optional) password message ---> server
+     * client   <---  auth request | auth ok <---   server
+     * client      --->  password message --->      server (optional)
      * client      <---  parameter status <---      server
      * client      <---  parameter status <---      server
      * client      <---  parameter status <---      server
@@ -153,6 +153,31 @@ export class Connection {
         //     path: host
         // // deno-lint-ignore no-explicit-any
         // } as any)
+
+        // sslRequest
+        const sslRequestWriter = new SSLRequestWriter()
+        const sslRequestBuffer = new BufferWriter(new Uint8Array(10))
+        await this.writePacket(sslRequestWriter.write(sslRequestBuffer))
+
+        try {
+            if (typeof Deno.startTls === 'undefined') {
+                throw new Error(`execute deno with '--unstable' argument to stablish TLS connection`)
+            }
+            // tcp connect with TLS
+            this.conn = await Deno.startTls(this.conn, {
+                hostname: host,
+                // certFile: '',
+            })
+
+        } catch (error) {
+            // tcp connect
+            this.conn = await Deno.connect({
+                transport: 'tcp',
+                hostname: host,
+                port: port
+            })
+        }
+
 
         // startup
         await this.writePacket(this.startup())
