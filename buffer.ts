@@ -42,7 +42,7 @@ export function readInt32BE(buffer: Uint8Array, offset: number): number {
         (buffer[offset] << 24) |
         (buffer[offset + 1] << 16) |
         (buffer[offset + 2] << 8) |
-        (buffer[offset])
+        (buffer[offset + 3])
     )
 }
 
@@ -155,11 +155,7 @@ export class BufferWriter {
 
     index = 0
 
-    constructor(public buffer: Uint8Array) {
-        // first 5 bytes prepare for packet header
-        this.enlarge(this.buffer.length + 5)
-        this.index += 5
-    }
+    constructor(public buffer: Uint8Array) {}
 
     /**
      * enlarge current buffer with more length
