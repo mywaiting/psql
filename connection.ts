@@ -178,9 +178,8 @@ export class Connection {
             })
         }
 
-
         // startup
-        await this.writePacket(this.startup())
+        await this.startup()
         // authentication
         await this.authenticate()
 
@@ -560,7 +559,7 @@ export class Connection {
 
     }
 
-    private startup(): Uint8Array {
+    private async startup() {
         const {
             user,
             database,
@@ -582,7 +581,7 @@ export class Connection {
                     clientEncoding.length + 1 + 2
         const startupBuffer = new BufferWriter(new Uint8Array(bufferLength))
 
-        return startupWriter.write(startupBuffer)
+        await this.writePacket(startupWriter.write(startupBuffer))
     }
 
     private async authenticate(): Promise<boolean> {
