@@ -81,6 +81,8 @@ import {
 
 
 
+const DEBUG = false
+
 
 export enum ConnectionStatus {
     Connecting,
@@ -88,7 +90,6 @@ export enum ConnectionStatus {
     Closing,
     Closed,
 }
-
 
 export interface ConnectionOptions {
     host: string,
@@ -112,7 +113,7 @@ export class Connection {
     transactionStatus?: TRANSACTION_STATUS
 
     // deno-lint-ignore no-explicit-any
-    serverInfo?: Record<string, any> = {} // for server parameters/status
+    serverInfo: Record<string, any> = {} // for server parameters/status
     queryLock: DeferredStack<undefined> = new DeferredStack(
         /* max */1,
         /* iterable */[undefined],
@@ -201,21 +202,13 @@ export class Connection {
                     processId: readPacket.processId,
                     secretKey: readPacket.secretKey
                 })
-                break
 
             // parameterStatue
             } else if (readPacket.packetName === MESSAGE_NAME.ParameterStatus) {
-                const parameter = readPacket.parameter
+                const name = readPacket.name
                 const value = readPacket.value
-                // this.serverInfo.parameters.server_version = ''
-                // this.serverInfo.parameters.client_encoding = ''
-                if (this.serverInfo && 'parameters' in this.serverInfo) {
-                    this.serverInfo.parameters[parameter] = value
-                } else {
-                    this.serverInfo!.parameters = {}
-                    this.serverInfo!.parameters[parameter] = value
-                }
-                break
+                // server paramenters all in here
+                this.serverInfo[name] = value
 
             // readyForQuery
             } else if (readPacket.packetName === MESSAGE_NAME.ReadyForQuery) {
@@ -223,9 +216,9 @@ export class Connection {
                 // break label
                 break waiting
             }
-
-            this.connectionStatus = ConnectionStatus.Connected
         }
+        // change connectionStatus
+        this.connectionStatus = ConnectionStatus.Connected
     }
 
     async close(): Promise<void> {
@@ -595,10 +588,10 @@ export class Connection {
         // error
         if (authPacket.packetName === MESSAGE_NAME.ErrorResponse) {
             const {
-                code,
-                message
+                message,
+                line,
             } = authPacket
-            throw new Error(`authenticate error occured: ${code} ${message}`)
+            throw new Error(`authenticate error occured: ${message || line}`)
 
         // ok
         } else if (authPacket.packetName === MESSAGE_NAME.AuthenticationOk) {
@@ -608,7 +601,7 @@ export class Connection {
         } else if (authPacket.packetName === MESSAGE_NAME.AuthenticationCleartextPassword) {
             // build password writer
             const passwordMessageWriter = new PasswordMessageWriter(password)
-            const passwordMessageBuffer = new BufferWriter(new Uint8Array(password.length + 6))
+            const passwordMessageBuffer = new BufferWriter(new Uint8Array(password.length))
             await this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
 
             // password response
@@ -629,7 +622,7 @@ export class Connection {
             const hashword = postgresMd5Hashword(user, password, authPacket.salt)
             // build password writer
             const passwordMessageWriter = new PasswordMessageWriter(hashword)
-            const passwordMessageBuffer = new BufferWriter(new Uint8Array(hashword.length + 6))
+            const passwordMessageBuffer = new BufferWriter(new Uint8Array(hashword.length))
             await this.writePacket(passwordMessageWriter.write(passwordMessageBuffer))
             // password response
             const resultPacket = await this.readPacket()
@@ -663,11 +656,19 @@ export class Connection {
             // fulfill packet head
             await this.conn!.read(headerReader.buffer)
             const packetCode = headerReader.readUint8() as MESSAGE_CODE // 1 byte
-            const packetLength = headerReader.readInt32() // 4 byte, Uint32BE
+            const packetLength = headerReader.readInt32() // 4 byte, Int32BE
 
-            const bodyReader = new BufferReader(new Uint8Array(packetLength))
+            const bodyReader = new BufferReader(new Uint8Array(packetLength - 4)) // except packetLength 4 bytes
             // fulfill packet body
             await this.conn!.read(bodyReader.buffer)
+
+            if (DEBUG) {
+                console.log('connection.readPacket:',
+                    'packetCode', decode(headerReader.buffer.slice(0, 1)), 
+                    'packetLength', packetLength,
+                    'BodyLength', packetLength - 4
+                )
+            }
 
             switch(packetCode) {
                 // AuthenticationReader will rename it's name by read()
@@ -814,7 +815,7 @@ export class Connection {
                 
                 // here will never throw, but we need this for recover everything
                 default:
-                    throw new Error(`unknown message code: ${packetCode.toString(16)}`)
+                    throw new Error(`unknown message code: 0x${packetCode.toString(16)}`)
             }
 
         } catch (error) {
@@ -856,5 +857,5 @@ function postgresMd5Hashword(user: string, password: string, salt: Uint8Array): 
     buff2.set(buff1)
     buff2.set(salt, buff1.length)
     const hash2 = createHash('md5').update(buff2).toString('hex')
-    return ['md5', hash2].join('')
+    return 'md5' + hash2
 }
