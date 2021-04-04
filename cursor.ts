@@ -59,7 +59,7 @@ export class Cursor {
 export class ArrayCursor extends Cursor {
 
     query<ResultT extends Array<unknown>>(
-        statement: string,
+        query: string,
         // deno-lint-ignore no-explicit-any
         ...paramenters: any[]
     ): Promise<ArrayQueryResult<ResultT>>
@@ -92,7 +92,10 @@ export class ArrayCursor extends Cursor {
 
         }
 
-        return this._query(queryOptions, QueryResultType.ARRAY) as Promise<ArrayQueryResult<ResultT>>
+        return this._query(
+            queryOptions, 
+            QueryResultType.ARRAY
+        ) as Promise<ArrayQueryResult<ResultT>>
     }
 
 }
@@ -101,7 +104,7 @@ export class ArrayCursor extends Cursor {
 export class ObjectCursor extends Cursor {
     
     query<ResultT extends Record<string, unknown>>(
-        statement: string,
+        query: string,
         // deno-lint-ignore no-explicit-any
         ...paramenters: any[]
     ): Promise<ObjectQueryResult<ResultT>>
@@ -134,7 +137,10 @@ export class ObjectCursor extends Cursor {
 
         }
 
-        return this._query(queryOptions, QueryResultType.ARRAY) as Promise<ObjectQueryResult<ResultT>>
+        return this._query(
+            queryOptions, 
+            QueryResultType.ARRAY
+        ) as Promise<ObjectQueryResult<ResultT>>
     }
 
 }
@@ -174,7 +180,7 @@ export class QueryOptions {
     public fields?: string[]
 
     constructor(options: ObjectQueryOptions)
-    constructor(statement: string, ...parameters: unknown[])
+    constructor(query: string, ...parameters: unknown[])
     constructor(overloadArg: ObjectQueryOptions | string, ...parameters: unknown[]) {
         let queryOptions: ArrayQueryOptions
         if (typeof overloadArg === 'string') {
@@ -287,8 +293,13 @@ export enum QueryResultType {
 }
 
 
-// deno-lint-ignore no-explicit-any 
-function templateString(template: any): template is TemplateStringsArray {
+/**
+ * this is typescript stupid check alias for Array.isArray
+ */
+function templateString(
+    // deno-lint-ignore no-explicit-any 
+    template: any
+): template is TemplateStringsArray {
     if (Array.isArray(template)) {
         return true
     }
