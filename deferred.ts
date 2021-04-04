@@ -1,9 +1,17 @@
 import {
     deferred
 } from './deps.ts'
-import {
-    Deferred
-} from './mod.d.ts'
+
+
+/**
+ * ported from `deno/std/async/mod.ts`
+ * the interface is simple to copy here, alias as Promise
+ */
+export interface Deferred<T> extends Promise<T> {
+    resolve: (value?: T | PromiseLike<T>) => void
+    // deno-lint-ignore no-explicit-any
+    reject: (reason?: any) => void
+}
 
 
 export class DeferredStack<T> {
