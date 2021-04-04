@@ -24,7 +24,7 @@ import {
 } from './types.ts'
 
 
-const DEBUG = true
+const DEBUG = false
 
 /**
  * be careful pass reader: BuffferReader
@@ -1170,8 +1170,6 @@ export class StartupWriter {
         writer.index = 0
         writer.writeInt32(this.packetLength)
         writer.index = this.packetLength
-
-        // if (DEBUG) dumpPacket(new BufferReader(writer.buffer.slice(0, writer.index)))
 
         return writer.buffer.slice(0, writer.index)
     }
