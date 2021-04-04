@@ -1108,7 +1108,7 @@ export class GSSENCRequestWriter {
     packetLength = 0x10 // parseInt(packetLength, 10) = 16
 
     write(writer: BufferWriter) {
-        writer.writeInt16(this.packetLength)
+        writer.writeInt32(this.packetLength)
         /**
          * the GSSAPI Encryption request code. The value is chosen to contain 1234 in the most significant 16 bits, 
          * and 5680 in the least significant 16 bits. (To avoid confusion, 
