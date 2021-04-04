@@ -141,9 +141,11 @@ export class Client {
      * https://stackoverflow.com/questions/12802317/passing-class-as-parameter-causes-is-not-newable-error
      */
     cursor(
-        cursorFactory: new (connection: Connection | DeferredStack<Connection>, options: CursorOptions) => ArrayCursor | ObjectCursor,
-        options: CursorOptions
-    ): Cursor {
+        // cursorFactory: new (connection: Connection | DeferredStack<Connection>, options: CursorOptions) => ArrayCursor | ObjectCursor = ArrayCursor,
+        // deno-lint-ignore no-explicit-any
+        cursorFactory: any = ArrayCursor,
+        options: CursorOptions = {}
+    ) {
         // pass connection instance to cursor factory
         const cursor = new cursorFactory(this.connection as Connection, options)
         return cursor
@@ -193,9 +195,11 @@ export class Pool {
      * https://stackoverflow.com/questions/12802317/passing-class-as-parameter-causes-is-not-newable-error
      */
     cursor(
-        cursorFactory: new (connection: Connection | DeferredStack<Connection>, options: CursorOptions) => ArrayCursor | ObjectCursor,
-        options: CursorOptions
-    ): Cursor {
+        // cursorFactory: new (connection: Connection | DeferredStack<Connection>, options: CursorOptions) => ArrayCursor | ObjectCursor = ArrayCursor,
+        // deno-lint-ignore no-explicit-any
+        cursorFactory: any = ArrayCursor,
+        options: CursorOptions = {}
+    ) {
         // pass deferred stack connections instance to cursor factory
         const cursor = new cursorFactory(this.availableConnections as DeferredStack<Connection>, options)
         return cursor
