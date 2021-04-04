@@ -91,6 +91,18 @@ export enum ConnectionStatus {
     Closed,
 }
 
+
+/**
+ * sslRequest response is very special that without any packetHeader, jsut a single byte
+ * 0x53 = 83 = 'S', accepts ssl request.
+ * 0x4e = 78 = 'N', not more ssl request.
+ */
+ export const enum SSL_STATUS {
+    Accept = 0x53,
+    Reject = 0x4e,
+}
+
+
 export interface ConnectionOptions {
     host: string,
     port: number,
@@ -155,28 +167,28 @@ export class Connection {
         // // deno-lint-ignore no-explicit-any
         // } as any)
 
-        // sslRequest
-        const sslRequestWriter = new SSLRequestWriter()
-        const sslRequestBuffer = new BufferWriter(new Uint8Array(10))
-        await this.writePacket(sslRequestWriter.write(sslRequestBuffer))
-
-        try {
-            if (typeof Deno.startTls === 'undefined') {
-                throw new Error(`execute deno with '--unstable' argument to stablish TLS connection`)
+        // check sslRequest before startup
+        const sslAccepts = await this.sslAccepts()
+        if (sslAccepts) {
+            try {
+                // @ts-ignore TS2339
+                if (typeof Deno.startTls === 'undefined') {
+                    throw new Error(`execute deno with '--unstable' argument to stablish SSL/TLS connection`)
+                }
+                // @ts-ignore TS2339
+                this.conn = await Deno.startTls(this.conn, {
+                    hostname: host,
+                    // certFile: '',
+                })
+    
+            } catch (error) {
+                // recover as tcp connect without ssl
+                this.conn = await Deno.connect({
+                    transport: 'tcp',
+                    hostname: host,
+                    port: port
+                })
             }
-            // tcp connect with TLS
-            this.conn = await Deno.startTls(this.conn, {
-                hostname: host,
-                // certFile: '',
-            })
-
-        } catch (error) {
-            // tcp connect
-            this.conn = await Deno.connect({
-                transport: 'tcp',
-                hostname: host,
-                port: port
-            })
         }
 
         // startup
@@ -550,6 +562,43 @@ export class Connection {
             }
         }
 
+    }
+
+    private async sslAccepts(): Promise<boolean> {
+        // sslRequest
+        const sslRequestWriter = new SSLRequestWriter()
+        const sslRequestBuffer = new BufferWriter(new Uint8Array(8))
+        await this.writePacket(sslRequestWriter.write(sslRequestBuffer))
+
+        /**
+         * to initiate an SSL-encrypted connection, the frontend initially sends an SSLRequest 
+         * message rather than a StartupMessage. The server then responds with a single byte 
+         * containing S or N, indicating that it is willing or unwilling to perform SSL, respectively
+         * 
+         * sslRequest response is very special that without any packetHeader, jsut a single byte
+         * 0x53 = 83 = 'S', accepts ssl request.
+         * 0x4e = 78 = 'N', not more ssl request.
+         */
+        const sslReader = new BufferReader(new Uint8Array(1)) // a single byte
+        await this.conn!.read(sslReader.buffer)
+
+        if (DEBUG) {
+            console.log('connection.sslAccepts:',
+                'packetCode', decode(sslReader.buffer.slice(0, 1)),
+                'packetLength', sslReader.buffer.length,
+            )
+        }
+
+        const sslStatus = sslReader.readUint8() as SSL_STATUS
+        switch (sslStatus) {
+            case SSL_STATUS.Accept:
+                return true
+            case SSL_STATUS.Reject:
+                return false
+            default:
+                // this will never happend, but still write this here
+                throw new Error(`connection error to stablish SSL/TLS connection`)
+        }
     }
 
     private async startup() {
