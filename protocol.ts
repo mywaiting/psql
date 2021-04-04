@@ -1080,10 +1080,10 @@ export class SSLRequestWriter {
     
     packetName: MESSAGE_NAME = MESSAGE_NAME.SSLRequest
     // packetCode: MESSAGE_CODE = '' // sslRequest without packetCode
-    packetLength = 0x10 // parseInt(packetLength, 10) = 16
+    packetLength = 0x08
 
     write(writer: BufferWriter) {
-        writer.writeInt16(this.packetLength)
+        writer.writeInt32(this.packetLength)
         /**
          * the SSL request code. The value is chosen to contain 1234 in the most significant 16 bits, 
          * and 5679 in the least significant 16 bits. (To avoid confusion, 
