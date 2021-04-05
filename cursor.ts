@@ -288,8 +288,8 @@ export class ObjectQueryResult<ResultT extends Record<string, unknown>> extends 
 }
 
 export enum QueryResultType {
-    ARRAY = 0x00,
-    OBJECT = 0x01
+    ARRAY  = 0x00,
+    OBJECT = 0x01,
 }
 
 

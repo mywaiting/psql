@@ -642,11 +642,11 @@ export class Connection {
             } = authPacket
             throw new Error(`authenticate error occured: ${message || line}`)
 
-        // ok
+        // ok = 0x00
         } else if (authPacket.packetName === MESSAGE_NAME.AuthenticationOk) {
             return true
 
-        // clearText
+        // clearText = 0x03
         } else if (authPacket.packetName === MESSAGE_NAME.AuthenticationCleartextPassword) {
             // build password writer
             const passwordMessageWriter = new PasswordMessageWriter(password)
@@ -665,7 +665,7 @@ export class Connection {
                 throw new Error(`authenticate unexpected error: ${resultPacket.packetCode.toString(16)}`)
             }
         
-        // md5
+        // md5 = 0x05
         } else if (authPacket.packetName === MESSAGE_NAME.AuthenticationMD5Password) {
             // make md5 password
             const hashword = postgresMd5Hashword(user, password, authPacket.salt)
@@ -684,6 +684,16 @@ export class Connection {
             } else {
                 throw new Error(`authenticate unexpected error: ${resultPacket.packetCode.toString(16)}`)
             }
+        
+        // sasl = 0x0a
+        // } else if (authPacket.packetName === MESSAGE_NAME.AuthenticationSASL) {
+        //     // restore SASL mechanisms
+        //     this.serverInfo['saslMechanisms'] = authPacket.mechanisms
+        //     // build saslInitialResponse writer
+        //     const saslInitialResponseWriter = new SASLInitialResponseWriter(
+        //         /* mechanism */'SCRAM-SHA-256',
+        //         /* initialResponse */
+        //     )
 
         // negotiateProtocolVersion
         } else if (authPacket.packetName === MESSAGE_NAME.NegotiateProtocolVersion) {
