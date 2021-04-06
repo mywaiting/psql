@@ -150,6 +150,9 @@ export class Connection {
      * client      <---  ready for query  <---      server
      */
     async connect(): Promise<void> {
+        // change connectionStatus
+        this.connectionStatus = ConnectionStatus.Connecting
+
         const {
             host,
             port,
@@ -191,56 +194,70 @@ export class Connection {
             }
         }
 
-        // startup
-        await this.startup()
-        // authentication
-        await this.authenticate()
+        // try connection flows
+        try {
+            // startup
+            await this.startup()
+            // authentication
+            await this.authenticate()
 
-        // connection
-        waiting:
-        while (true) {
-            const readPacket = await this.readPacket()
-            // error
-            if (readPacket.packetName === MESSAGE_NAME.ErrorResponse) {
-                const {
-                    code,
-                    message
-                } = readPacket
-                throw new Error(`connect error occured: ${code} ${message}`)
+            // connection
+            waiting:
+            while (true) {
+                const readPacket = await this.readPacket()
+                // error
+                if (readPacket.packetName === MESSAGE_NAME.ErrorResponse) {
+                    const {
+                        code,
+                        message
+                    } = readPacket
+                    throw new Error(`connect error occured: ${code} ${message}`)
 
-            // backendKeyData
-            } else if (readPacket.packetName === MESSAGE_NAME.BackendKeyData) {
-                Object.assign(this.serverInfo, {
-                    processId: readPacket.processId,
-                    secretKey: readPacket.secretKey
-                })
+                // backendKeyData
+                } else if (readPacket.packetName === MESSAGE_NAME.BackendKeyData) {
+                    Object.assign(this.serverInfo, {
+                        processId: readPacket.processId,
+                        secretKey: readPacket.secretKey
+                    })
 
-            // parameterStatue
-            } else if (readPacket.packetName === MESSAGE_NAME.ParameterStatus) {
-                const name = readPacket.name
-                const value = readPacket.value
-                // server paramenters all in here
-                this.serverInfo[name] = value
+                // parameterStatue
+                } else if (readPacket.packetName === MESSAGE_NAME.ParameterStatus) {
+                    const name = readPacket.name
+                    const value = readPacket.value
+                    // server paramenters all in here
+                    this.serverInfo[name] = value
 
-            // readyForQuery
-            } else if (readPacket.packetName === MESSAGE_NAME.ReadyForQuery) {
-                this.transactionStatus = readPacket.transactionStatus
-                // break label
-                break waiting
+                // readyForQuery
+                } else if (readPacket.packetName === MESSAGE_NAME.ReadyForQuery) {
+                    this.transactionStatus = readPacket.transactionStatus
+                    // break label
+                    break waiting
+                }
             }
+            // change connectionStatus
+            this.connectionStatus = ConnectionStatus.Connected
+
+        } catch (error) {
+            // socket closed
+            this.conn!.close()
+            // change connectionStatus
+            this.connectionStatus = ConnectionStatus.Closing
+            // throw current error
+            throw new Error(error.message)
         }
-        // change connectionStatus
-        this.connectionStatus = ConnectionStatus.Connected
     }
 
     async close(): Promise<void> {
         if (this.connectionStatus !== ConnectionStatus.Closed) {
+            // change connectionStatus
+            this.connectionStatus = ConnectionStatus.Closing
             // Terminate Message sended before closed
             const terminateWriter = new TerminateWriter()
             const terminateBuffer = new BufferWriter(new Uint8Array(5))
             await this.writePacket(terminateWriter.write(terminateBuffer))
             // socket closed
             this.conn!.close()
+            // change connectionStatus
             this.connectionStatus = ConnectionStatus.Closed
         }
     }
