@@ -1,7 +1,8 @@
 
 import {
     OID_TYPE_CODE,
-    OID_TYPE_NAME
+    OID_TYPE_NAME,
+    PARAMETER_FORMAT_CODE
 } from './const.ts'
 import {
     BufferReader,
@@ -85,10 +86,19 @@ export class TypeReader {
 
     constructor() {}
 
-    decode(value: Uint8Array, oid: OID_TYPE_CODE, format: 'text' | 'binary' = 'text') {
-        if (format === 'binary') {
-            throw new Error(`not support binary type decode now`)
-        } else if (format === 'text') {
+    decode(
+        value: Uint8Array, 
+        oid: OID_TYPE_CODE, 
+        format:PARAMETER_FORMAT_CODE = PARAMETER_FORMAT_CODE.TEXT
+    ) {
+        if (format === PARAMETER_FORMAT_CODE.TEXT) {
+            /**
+             * TypeError within JS, means invalid arguments or parameters.
+             * with `format === 'binary'` argument is unsupported now
+             */
+            throw new TypeError(`not support binary type decode now`)
+
+        } else if (PARAMETER_FORMAT_CODE.TEXT) {
             const strValue = decode(value)
             switch (oid) {
                 case OID_TYPE_CODE.bpchar:
@@ -236,8 +246,10 @@ export class TypeReader {
                     return strValue
 
             }
+        
         } else {
-            throw new Error(`unknown format type decode: ${format}`)
+            // here never throw, but let it there
+            throw new TypeError(`unknown format type decode: ${format}`)
         }
     }
 
@@ -338,7 +350,10 @@ export class TypeReader {
         }
         const matches = TYPE_DATE_REGEXP.exec(value)
         if (!matches) {
-            throw new Error(`"${value}" string could not parsed to date`)
+            /**
+             * value must match `TYPE_DATE_REGEXP` some part.
+             */
+            throw new TypeError(`"${value}" string could not parsed to date`)
         }
 
         const year = parseInt(matches[1], 10)
@@ -458,7 +473,10 @@ export class TypeReader {
         const [x, y] = value.substring(1, value.length - 1).split(",")
 
         if (Number.isNaN(parseFloat(x)) || Number.isNaN(parseFloat(y))) {
-            throw new Error(
+            /**
+             * isNaN, NaN number unsupported here.
+             */
+            throw new TypeError(
                 `Invalid point value: "${Number.isNaN(parseFloat(x)) ? x : y}"`
             );
         }
@@ -570,7 +588,8 @@ export class TypeWriter {
                 encodedArray.concat(this._array(element))
 
             } else if (element instanceof Uint8Array) {
-                throw new Error(`buffer could encoded now`)
+                // TODO: Uint8Array() in Array() needed this._byte() ???
+                throw new Error(`buffer as Uint8Array() in Array() could encoded now`)
 
             } else {
                 const encodedElement = this.encode(element)
@@ -715,7 +734,7 @@ export class ArrayParser<ResultT> {
         }
         // check depth, out while loop, depth must be zero
         if (this.depth !== 0) {
-            throw new Error(`ArrayParser depth not balanced`)
+            throw new RangeError(`ArrayParser depth not balanced with array decoded`)
         }
         return this.entries
     }

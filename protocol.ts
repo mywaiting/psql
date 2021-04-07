@@ -20,6 +20,9 @@ import {
     encode
 } from './buffer.ts'
 import {
+    PacketError
+} from './error.ts'
+import {
     TypeWriter
 } from './types.ts'
 
@@ -183,7 +186,7 @@ export class AuthenticationReader extends PacketReader {
             }
 
             default:
-                throw new Error(`unknow authenticate message with ${code}`)
+                throw new PacketError(`unknow authenticate message with ${code}`)
             
         }
 

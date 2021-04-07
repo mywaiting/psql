@@ -28,6 +28,12 @@ import {
     DeferredStack
 } from './deferred.ts'
 import {
+    AuthenticationError,
+    ConnectionError,
+    PacketError,
+    QueryError,
+} from './error.ts'
+import {
     // packetReader
     PacketReader,
     AuthenticationReader,
@@ -176,7 +182,11 @@ export class Connection {
             try {
                 // @ts-ignore TS2339
                 if (typeof Deno.startTls === 'undefined') {
-                    throw new Error(`execute deno with '--unstable' argument to stablish SSL/TLS connection`)
+                    /**
+                     * TypeError within JS, means invalid arguments or parameters.
+                     * without `--unstable` argument is invalid for ssl accepts.
+                     */
+                    throw new TypeError(`execute deno with '--unstable' argument to stablish SSL/TLS connection`)
                 }
                 // @ts-ignore TS2339
                 this.conn = await Deno.startTls(this.conn, {
@@ -211,7 +221,7 @@ export class Connection {
                         code,
                         message
                     } = readPacket
-                    throw new Error(`connect error occured: ${code} ${message}`)
+                    throw new ConnectionError(`connect error occured: ${code} ${message}`)
 
                 // backendKeyData
                 } else if (readPacket.packetName === MESSAGE_NAME.BackendKeyData) {
@@ -243,7 +253,7 @@ export class Connection {
             // change connectionStatus
             this.connectionStatus = ConnectionStatus.Closing
             // throw current error
-            throw new Error(error.message)
+            throw new ConnectionError(error.message)
         }
     }
 
@@ -264,7 +274,7 @@ export class Connection {
 
     async query(options: QueryOptions, type: QueryResultType): Promise<QueryResult> {
         if (this.connectionStatus !== ConnectionStatus.Connected) {
-            throw new Error(`connection initial before execute`)
+            throw new ConnectionError(`connection initial before execute`)
         }
         // acquire query lock
         await this.queryLock.pop()
@@ -277,7 +287,12 @@ export class Connection {
             }
 
         } catch (error) {
-            throw new Error(error.message)
+            /**
+             * error here throwed by others, for example, PacketError
+             * will never thorw here, error throwed here is beyond within `error.ts`.
+             * so just throwed directly
+             */
+            throw error
 
         } finally {
             // release query lock
@@ -332,7 +347,7 @@ export class Connection {
                 code,
                 message
             } = readPacket
-            throw new Error(`query error occured: ${code} ${message}`)
+            throw new QueryError(`query error occured: ${code} ${message}`)
 
         } else if (readPacket.packetName === MESSAGE_NAME.NoticeResponse) {
             result.warnings!.push(readPacket)
@@ -350,7 +365,7 @@ export class Connection {
             }
 
         } else {
-            throw new Error(`unexpected query response: ${readPacket.packetCode.toString(16)}`)
+            throw new PacketError(`unexpected query response packet: ${readPacket.packetCode.toString(16)}`)
         }
 
         // loop for all rows data
@@ -393,7 +408,7 @@ export class Connection {
                 }
 
             } else {
-                throw new Error(`unexpected query response: ${readPacket.packetCode.toString(16)}`)
+                throw new PacketError(`unexpected query response packet: ${readPacket.packetCode.toString(16)}`)
             }
         }
     }
@@ -532,7 +547,7 @@ export class Connection {
             result.warnings!.push(readPacket)
 
         } else {
-            throw new Error(`unexpected query response: ${readPacket.packetCode.toString(16)}`)
+            throw new PacketError(`unexpected query response packet: ${readPacket.packetCode.toString(16)}`)
         }
 
         // loop for all rows data
@@ -575,7 +590,7 @@ export class Connection {
                 }
 
             } else {
-                throw new Error(`unexpected query response: ${readPacket.packetCode.toString(16)}`)
+                throw new PacketError(`unexpected query packet response: ${readPacket.packetCode.toString(16)}`)
             }
         }
 
@@ -614,7 +629,7 @@ export class Connection {
                 return false
             default:
                 // this will never happend, but still write this here
-                throw new Error(`connection error to stablish SSL/TLS connection`)
+                throw new ConnectionError(`connection error to stablish SSL/TLS connection`)
         }
     }
 
@@ -657,7 +672,7 @@ export class Connection {
                 message,
                 line,
             } = authPacket
-            throw new Error(`authenticate error occured: ${message || line}`)
+            throw new AuthenticationError(`authenticate error occured: ${message || line}`)
 
         // ok = 0x00
         } else if (authPacket.packetName === MESSAGE_NAME.AuthenticationOk) {
@@ -676,10 +691,9 @@ export class Connection {
                 return true
             
             } else if (resultPacket.packetName === MESSAGE_NAME.ErrorResponse) {
-                // TODO: AuthenticationError()
-                throw new Error(`authenticate error: ${resultPacket.message}`)
+                throw new AuthenticationError(`authenticate error: ${resultPacket.message}`)
             } else {
-                throw new Error(`authenticate unexpected error: ${resultPacket.packetCode.toString(16)}`)
+                throw new AuthenticationError(`authenticate unexpected error: ${resultPacket.packetCode.toString(16)}`)
             }
         
         // md5 = 0x05
@@ -696,10 +710,9 @@ export class Connection {
                 return true
             
             } else if (resultPacket.packetName === MESSAGE_NAME.ErrorResponse) {
-                // TODO: AuthenticationError()
-                throw new Error(`authenticate error: ${resultPacket.message}`)
+                throw new AuthenticationError(`authenticate error: ${resultPacket.message}`)
             } else {
-                throw new Error(`authenticate unexpected error: ${resultPacket.packetCode.toString(16)}`)
+                throw new AuthenticationError(`authenticate unexpected error: ${resultPacket.packetCode.toString(16)}`)
             }
         
         // sasl = 0x0a
@@ -714,14 +727,14 @@ export class Connection {
 
         // negotiateProtocolVersion
         } else if (authPacket.packetName === MESSAGE_NAME.NegotiateProtocolVersion) {
-            throw new Error(`server and client with 
+            throw new ConnectionError(`server and client with 
                 negotiate protocol version: ${authPacket.newestVersion}
                 negotiate protocol options: ${authPacket.options}
             `)
         
         // other not supported
         } else {
-            throw new Error(`authenticate not supported: ${authPacket.packetCode.toString(16)}`)
+            throw new AuthenticationError(`authenticate not supported: ${authPacket.packetCode.toString(16)}`)
         }
     }
 
@@ -889,14 +902,13 @@ export class Connection {
                         /* length */packetLength
                     ).read(bodyReader)
                 
-                // here will never throw, but we need this for recover everything
+                // here will never throw in normal, but we need this for recover everything
                 default:
-                    throw new Error(`unknown message code: 0x${packetCode.toString(16)}`)
+                    throw new PacketError(`unknown message code: ${packetCode.toString(16)}`)
             }
 
         } catch (error) {
-            // TODO: throw ReadError
-            throw new Error(error.message)
+            throw new PacketError(`[connection.readPacket] ${error.message}`)
         }
     }
 
@@ -913,8 +925,7 @@ export class Connection {
             } while (padded < buffer.length)
 
         } catch (error) {
-            // TODO: throw WriteError
-            throw new Error(error.message)
+            throw new PacketError(`[connection.writePacket] ${error.message}`)
         }
     }
 

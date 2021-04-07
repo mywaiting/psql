@@ -82,7 +82,11 @@ export class ClientOptionsReader {
         const options = Object.fromEntries(url.searchParams.entries())
 
         if (protocol !== 'postgres' && protocol !== 'postgresql') {
-            throw new Error(`dsn string with invalid driver: ${protocol}`)
+            /**
+             * URIError means invalid arguments for encodeURI and decodeURI.
+             * here, dsn string invalid with the protocol
+             */
+            throw new URIError(`dsn string with invalid driver: ${protocol}`)
         }
 
         return {
