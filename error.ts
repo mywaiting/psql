@@ -9,7 +9,7 @@
  * in typescript, an enum member cannot have a numeric name.
  * so here, we can only use dict map
  */
-export const ERROR_CLASSES = {
+export const ERROR_CLASSES_MAP = {
     '00': 'CLASS_SUCCESSFUL_COMPLETION',
     '01': 'CLASS_WARNING',
     '02': 'CLASS_NO_DATA',
@@ -62,7 +62,7 @@ export const ERROR_CLASSES = {
  * in typescript, an enum member cannot have a numeric name.
  * so here, we can only use dict map
  */
-export const ERROR_CODE = {
+export const ERROR_CODE_MAP = {
     /* Class 02 - No Data (this is also a warning class per the SQL standard) */
     '02000': 'NoData',
     '02001': 'NoAdditionalDynamicResultSetsReturned',
