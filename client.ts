@@ -4,10 +4,10 @@ import {
     ConnectionOptions
 } from './connection.ts'
 import {
-    Cursor,
+    // Cursor,
     CursorOptions,
     ArrayCursor,
-    ObjectCursor
+    // ObjectCursor
 } from './cursor.ts'
 import {
     DeferredStack
@@ -35,13 +35,13 @@ export class ClientOptionsReader {
     read(): ConnectionOptions {
         let options = this.options
         if (typeof options === 'string') {
-            options = this.pqDSN(options)
+            options = this.readDSN(options)
         }
         // check deno env access
         let pqEnv: ClientOptions = {}
         let denoEnvAccess = true
         try {
-            pqEnv = this.pqEnv()
+            pqEnv = this.readEnv()
         } catch (error) {
             if (error instanceof Deno.errors.PermissionDenied) {
                 denoEnvAccess = false
@@ -66,7 +66,7 @@ export class ClientOptionsReader {
             user: options.user ?? pqEnv.user ?? '',
             password: options.password ?? pqEnv.password,
             options: options.options ?? pqEnv.options,
-            applicationName: options.applicationName ?? pqEnv.applicationName ?? 'pq'
+            applicationName: options.applicationName ?? pqEnv.applicationName ?? 'psql'
         }
     }
 
@@ -74,7 +74,7 @@ export class ClientOptionsReader {
      * dsn: postgresql://[user[:password]@][host][:port][,...][/database][?param1=value1&...]
      * https://www.postgresql.org/docs/13/libpq-connect.html#LIBPQ-CONNSTRING
      */
-    pqDSN(dsn: string): ClientOptions {
+    readDSN(dsn: string): ClientOptions {
         // URL object won't parse the URL if it doesn't recognize the protocol
         // this line replaces the protocol with http and then leaves it up to URL
         const [protocol, strippedUrl] = dsn.match(/(?:(?!:\/\/).)+/g) ?? ["", ""]
@@ -105,7 +105,7 @@ export class ClientOptionsReader {
      * following environment variables can be used to as connection parameter values
      * https://www.postgresql.org/docs/13/libpq-envars.html
      */
-    pqEnv(): ClientOptions {
+    readEnv(): ClientOptions {
         const params = Deno.env.get("PGOPTIONS") // 'a=1 b=2 c=3'
         const options = params ? params.split(' ').reduce(
             (prev: Record<string, string>, curr: string) => {

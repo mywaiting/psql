@@ -1,4 +1,4 @@
-# pq
+# psql
 
 Deno implementation of the Postgresql frontend-backend/client-server protocol
 
@@ -10,7 +10,7 @@ Deno implementation of the Postgresql frontend-backend/client-server protocol
 import { 
     Client,
     ObjectCursor
-} from 'https://deno.land/x/pq/mod.ts'
+} from 'https://deno.land/x/psql/mod.ts'
 
 const client = new Client({
     host: 'localhost',
@@ -28,7 +28,7 @@ await client.connect()
 }
 
 // simple query with paramters, result as object with ObjectCursor
-// You play `pq` with with `es6 tagged template string`, which looks like magic.
+// You play `psql` with with `es6 tagged template string`, which looks like magic.
 {
     const objectCursor = client.cursor(ObjectCursor)
     // const result = await objectCursor.query('select id, name from people where id < $1', [3, ])

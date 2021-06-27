@@ -1,5 +1,3 @@
-
-
 /**
  * identifies the message with the first byte
  * https://www.postgresql.org/docs/13/protocol-message-formats.html

@@ -12,11 +12,11 @@ import {
     PARAMETER_FORMAT_CODE,
     PORTAL_STATEMENT_TYPE,
     TRANSACTION_STATUS
-} from './const.ts'
+} from './constants.ts'
 import {
     BufferReader,
     BufferWriter,
-    decode,
+    // decode,
     encode
 } from './buffer.ts'
 import {
@@ -1139,7 +1139,7 @@ export class StartupWriter {
     constructor(
         public user: string = '',
         public database?: string,
-        public applicationName: string = 'pq',
+        public applicationName: string = 'psql',
         public clientEncoding: string = 'utf-8'
     ) {}
 

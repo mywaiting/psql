@@ -1,6 +1,3 @@
-
-
-
 /**
  * ported from `deno/std/async/mod.ts`
  * the interface is simple to copy here, alias as Promise

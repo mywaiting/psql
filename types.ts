@@ -3,7 +3,7 @@ import {
     OID_TYPE_CODE,
     OID_TYPE_NAME,
     PARAMETER_FORMAT_CODE
-} from './const.ts'
+} from './constants.ts'
 import {
     BufferReader,
     BufferWriter,

@@ -1,7 +1,3 @@
-
-
-
-
 /**
  * error classes
  * https://github.com/psycopg/psycopg2/blob/master/lib/errorcodes.py
@@ -469,7 +465,7 @@ export class InternalError extends DatabaseError {
 export function postgresErrorCode(
     message: string
 ) {
-    
+    return message
 }
 
 export function postgresRaiseError(
@@ -567,7 +563,7 @@ export function postgresRaiseError(
 
 
 /**
- * error for pq infrastructure
+ * error for psql infrastructure
  */
 export class AuthenticationError extends DatabaseError {
     constructor(message: string) {

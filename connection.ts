@@ -10,7 +10,7 @@ import {
     MESSAGE_NAME,
     PORTAL_STATEMENT_TYPE,
     TRANSACTION_STATUS
-} from './const.ts'
+} from './constants.ts'
 import {
     BufferReader,
     BufferWriter,
@@ -35,7 +35,7 @@ import {
 } from './error.ts'
 import {
     // packetReader
-    PacketReader,
+    // PacketReader,
     AuthenticationReader,
     BackendKeyDataReader,
     BindCompleteReader,
@@ -61,25 +61,25 @@ import {
     ReadyForQueryReader,
     RowDescriptionReader,
     // packetWriter
-    PacketWriter,
+    // PacketWriter,
     BindWriter,
-    CancelRequestWriter,
-    CloseWriter,
-    CopyDataWriter,
-    CopyDoneWriter,
-    CopyFailWriter,
+    // CancelRequestWriter,
+    // CloseWriter,
+    // CopyDataWriter,
+    // CopyDoneWriter,
+    // CopyFailWriter,
     DescribeWriter,
     ExecuteWriter,
-    FlushWriter,
-    FunctionCallWriter,
-    GSSResponseWriter,
+    // FlushWriter,
+    // FunctionCallWriter,
+    // GSSResponseWriter,
     ParseWriter,
     PasswordMessageWriter,
     QueryWriter,
-    SASLInitialResponseWriter,
-    SASLResponseWriter,
+    // SASLInitialResponseWriter,
+    // SASLResponseWriter,
     SSLRequestWriter,
-    GSSENCRequestWriter,
+    // GSSENCRequestWriter,
     StartupWriter,
     SyncWriter,
     TerminateWriter
