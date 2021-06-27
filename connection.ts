@@ -194,6 +194,7 @@ export class Connection {
                     // certFile: '',
                 })
     
+            // deno-lint-ignore no-unused-vars
             } catch (error) {
                 // recover as tcp connect without ssl
                 this.conn = await Deno.connect({
