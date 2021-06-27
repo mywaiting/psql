@@ -27,6 +27,7 @@ import {
 } from './types.ts'
 
 
+// deno-lint-ignore no-unused-vars
 const DEBUG = false
 
 /**
@@ -71,6 +72,7 @@ export class PacketReader {
         public packetLength: number
     ) {}
 
+    // deno-lint-ignore no-unused-vars
     read(reader: BufferReader) {
         throw new Error('not implemented')
     }
@@ -648,6 +650,7 @@ export class PacketWriter {
         public packetLength: number
     ) {}
 
+    // deno-lint-ignore no-unused-vars
     write(writer: BufferWriter): Uint8Array {
         throw new Error('not implemented')
     }
